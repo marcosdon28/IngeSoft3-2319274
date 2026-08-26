@@ -289,11 +289,13 @@ plataforma de CI.
   exitoso no garantiza el permiso. En mi caso el `refresh` sí tomó el scope y el push funcionó, pero
   la comprobación real es empujar algo.
 
-- **La arquitectura de las imágenes.** Estas imágenes se construyeron en una Mac con chip ARM, así
-  que sirven para máquinas ARM. Alguien con Intel/AMD recibiría
-  `no matching manifest for linux/amd64` — y los runners de CI del TP7 son Intel. Para este práctico
-  alcanza con saberlo y declararlo; en el **TP7** se resuelve con `docker buildx`, que construye para
-  las dos arquitecturas a la vez.
+- **La arquitectura de las imágenes.** Se construyeron en una Mac con chip ARM, y lo verifiqué en
+  vez de suponerlo: `docker manifest inspect` devuelve una sola plataforma real, `linux/arm64` (el
+  `unknown/unknown` que aparece al lado es el manifiesto de atestación que agrega BuildKit, no una
+  arquitectura). Alguien con Intel/AMD recibiría `no matching manifest for linux/amd64` — y **los
+  runners de GitHub Actions son Intel**, así que esto reaparece en el TP7. Ahí se resuelve con
+  `docker buildx`, que construye para las dos arquitecturas a la vez. Para este práctico alcanza con
+  saberlo y declararlo.
 
 ### Declaración de uso de IA — TP2
 
