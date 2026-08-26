@@ -1,15 +1,92 @@
 # Proyecto IngSoft3 — Inventario de productos (UCC 2026)
 Ingeniería del Software 3 - UCC 2026 | Repo del semestre: TP1..TP9 + Integrador
 
-## Instalación
+Sistema de gestión de inventario: productos, categorías y movimientos de stock, con las reglas de
+negocio del dominio (stock que no puede quedar negativo, SKU único, descuentos por cantidad, alertas
+de reposición). Es la **app del semestre**: cada trabajo práctico le agrega una capa.
+
+| | |
+|---|---|
+| **Frontend** | React 18 + Vite, servido por nginx |
+| **Backend** | FastAPI (Python 3.12) + SQLAlchemy 2, organizado en MVC |
+| **Base de datos** | PostgreSQL 16 |
+
+---
+
+## Arranque desde cero
+
+Requisitos: **sólo Docker**. No hace falta tener instalado Python, Node ni PostgreSQL.
 
 ```bash
 git clone https://github.com/marcosdon28/IngeSoft3-2319274.git
 cd IngeSoft3-2319274
+
+cp .env.example .env        # ⚠️ PRIMERO esto: el .env no viaja en el repo
+docker compose up -d --build
 ```
 
-> A partir del TP2 este README documenta el arranque completo del sistema
-> (`cp .env.example .env` + `docker compose up -d`).
+Son **dos comandos, no uno**, y eso es a propósito: el secreto de la base es lo único que no puede
+estar versionado, así que el arranque necesita ese paso manual. El `.env.example` documenta qué
+variables hacen falta, sin traer ningún valor real.
+
+Cuando termine:
+
+| Servicio | URL |
+|---|---|
+| Aplicación | <http://localhost:3000> |
+| API | <http://localhost:8000> |
+| Documentación de la API (OpenAPI) | <http://localhost:8000/docs> |
+| Salud del backend | <http://localhost:8000/health> |
+
+Para ver la app con contenido: `./scripts/datos-demo.sh`
+
+Para apagar: `docker compose down` (los datos quedan) · `docker compose down -v` (los datos se borran).
+
+### Levantarlo sin el código, desde el registry
+
+Las imágenes están publicadas en GitHub Container Registry. Con sólo el compose y el `.env` alcanza:
+
+```bash
+cp .env.example .env
+docker compose -f docker-compose.registry.yml up -d
+```
+
+- `ghcr.io/marcosdon28/inventario-backend:v0.1.0`
+- `ghcr.io/marcosdon28/inventario-frontend:v0.1.0`
+
+---
+
+## Cómo está organizado
+
+```
+backend/                 FastAPI, en capas MVC
+  app/models/            SQLAlchemy — las entidades y su persistencia
+  app/schemas/           Pydantic — el contrato de entrada y salida de la API
+  app/services/          las REGLAS DE NEGOCIO, sin nada de HTTP adentro
+  app/routers/           los endpoints: traducen HTTP a llamadas a los services
+frontend/                React + Vite
+  src/lib/reglas.js      reglas de la vista, funciones puras y testeables
+  src/pages/             Resumen · Productos · Categorías · Movimientos
+scripts/datos-demo.sh    carga datos de ejemplo contra la API
+```
+
+Los services no importan FastAPI: las reglas se pueden testear sin levantar la API. El frontend llama
+a `/api/...` con **ruta relativa** — no sabe dónde vive el backend, y por eso la misma imagen sirve en
+cualquier entorno (en desarrollo lo resuelve el proxy de Vite; en el contenedor, nginx).
+
+## Las reglas de negocio
+
+| # | Regla | Dónde vive |
+|---|---|---|
+| 1 | Una salida no puede superar el stock disponible | `services/movimiento_service.py` |
+| 2 | El SKU de un producto es único | `services/producto_service.py` |
+| 3 | No se puede eliminar una categoría con productos asociados | `services/categoria_service.py` |
+| 4 | Precio y stock no negativos; cantidad de movimiento > 0 | `schemas/` (Pydantic) |
+| 5 | Descuento por cantidad a partir de un umbral | `services/movimiento_service.py` |
+| 6 | Un producto con `stock <= stock_minimo` está en bajo stock | `models/producto.py` |
+| 7 | Un producto inactivo no admite movimientos | `services/movimiento_service.py` |
+
+---
 
 ## Contenido del repositorio
 

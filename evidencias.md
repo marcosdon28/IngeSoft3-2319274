@@ -110,3 +110,83 @@ Las capturas del navegador (1.b, 1.c, 2, 3 y 4) se sacaron **automatizando Chrom
 contra este mismo repositorio, con mi sesión de GitHub. Los scripts navegan a la URL, esperan a que
 cargue, ubican el elemento y capturan. La 1 es la salida real de la terminal, renderizada como
 imagen, con el transcript literal transcripto arriba.
+
+---
+
+## TP2 — Contenedores: la app del semestre
+
+### 1. `docker compose up -d` desde cero
+
+![docker compose up desde cero](img/tp2-08-compose-up.png)
+
+Arranque completo en una máquina limpia, empezando por `docker compose down -v` para no dejar nada
+del estado anterior. Tres cosas para mirar en esa salida:
+
+- **`db Waiting → db Healthy → backend Starting`**: eso es `depends_on` + `healthcheck` en acción.
+  El backend no arranca hasta que PostgreSQL *acepta conexiones*, no apenas el contenedor existe.
+- **Los puertos**: sólo `backend` y `frontend` publican puertos al host. `db` expone `5432/tcp`
+  **hacia adentro de la red de compose** y no lo publica: la base no es accesible desde afuera.
+- **`curl localhost:3000/api/productos` devuelve datos**: el pedido entra por nginx (puerto 3000),
+  nginx lo reenvía a `backend:8000` por la red interna, y el backend consulta `db:5432`. Los tres
+  servicios se encuentran **por nombre**, y como para el browser todo sale del mismo origen, no hay
+  CORS de por medio.
+
+### 2. El sistema funcionando end-to-end
+
+![tablero de la aplicación](img/tp2-01-app-resumen.png)
+
+El tablero con datos reales traídos de PostgreSQL. **Bajo stock: 2** en rojo es la regla 6
+funcionando: `LIM-001` tiene 3 unidades con mínimo 6, y `ALM-001` quedó en 4 con mínimo 5 después de
+una salida de 21. La lista *Productos por reponer* se calcula desde el stock, no de una columna
+guardada, así que no puede quedar desincronizada.
+
+![listado de productos](img/tp2-02-app-productos.png)
+
+Los productos con su categoría, precio y stock. El chip del stock es verde o naranja según la regla
+6. `Dar de baja` marca el producto como inactivo — y a partir de ahí la regla 7 le bloquea los
+movimientos.
+
+![categorías](img/tp2-03-app-categorias.png)
+
+Cada categoría muestra cuántos productos tiene. **El botón *Eliminar* está deshabilitado cuando el
+número es mayor a cero**: es la regla 3 reflejada en la vista. La validación de la interfaz es
+comodidad, no seguridad — el backend rechaza el borrado igual, con un 400 y el motivo.
+
+![movimientos de stock](img/tp2-04-app-movimientos.png)
+
+El historial con la regla 5 visible: la salida de **10 unidades tiene 10 % de descuento** y la de 9
+no. Arriba, el formulario muestra *«Elegí un producto»* y el botón deshabilitado — las reglas 1, 4 y
+7 evaluadas en vivo, diciendo **por qué** no se puede registrar.
+
+![documentación OpenAPI](img/tp2-05-api-docs.png)
+
+La API autodocumentada que genera FastAPI a partir de los schemas de Pydantic. No es un archivo que
+haya que mantener: sale de los mismos tipos que validan la entrada.
+
+### 3. Prueba de persistencia
+
+![prueba de persistencia del volumen](img/tp2-07-persistencia.png)
+
+La secuencia completa, con los stocks antes y después:
+
+1. **`docker compose down && up -d`** → los datos **siguen ahí**. Los contenedores se destruyeron y
+   se volvieron a crear; el volumen `db_data` sobrevivió.
+2. **`docker compose down -v && up -d`** → la lista vuelve **vacía**. El flag `-v` se llevó también
+   el volumen.
+
+`down` apaga; `down -v` además **olvida**. Es la diferencia que hace que un contenedor de base de
+datos sea usable: el contenedor es descartable, el estado no.
+
+### 4. Comparación de tamaños: multi-stage
+
+![comparación de tamaños de imagen](img/tp2-06-tamanos-imagenes.png)
+
+| | Imagen de build | Imagen final | Reducción |
+|---|---|---|---|
+| **Backend** | `python:3.12` — **1,62 GB** | `python:3.12-slim` + venv — **326 MB** | 5× |
+| **Frontend** | `node:22-alpine` — 229 MB | `nginx:alpine` + estáticos — **93 MB** | 2,5× |
+
+Sin multi-stage la imagen del backend pesaría 1,62 GB en vez de 326 MB — y viajaría a producción con
+un compilador adentro, que es superficie de ataque que no hace falta. En el frontend el argumento es
+todavía más claro: una SPA compilada son **archivos estáticos**, así que Node no tiene nada que hacer
+en la imagen final.

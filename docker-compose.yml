@@ -1,0 +1,43 @@
+# Sistema completo del semestre: frontend + backend + base de datos.
+# Levanta con:  cp .env.example .env  &&  docker compose up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: postgres
+      POSTGRES_DB: inventario          # crea la base que la DATABASE_URL espera
+    volumes:
+      # Volumen NOMBRADO (no bind mount): lo administra Docker y los datos
+      # SOBREVIVEN a que el contenedor se destruya y se vuelva a crear.
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      # "arrancó" no es lo mismo que "acepta conexiones": esto verifica lo segundo.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d inventario"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      # 'db' es el NOMBRE DEL SERVICIO: compose crea una red interna con DNS y
+      # los contenedores se encuentran por nombre, no por IP.
+      DATABASE_URL: "postgresql+psycopg://postgres:${DB_PASSWORD}@db:5432/inventario"
+      DESCUENTO_CANTIDAD_MINIMA: "10"
+      DESCUENTO_PORCENTAJE: "10"
+    ports:
+      - "8000:8000"                    # para curl y para /docs: el browser entra por el 3000
+    depends_on:
+      db:
+        condition: service_healthy     # espera a que la BD esté LISTA, no sólo iniciada
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
