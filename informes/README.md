@@ -6,8 +6,10 @@ Un informe por trabajo práctico, en PDF, con las capturas embebidas.
 |---|---|
 | `TP1-informe.pdf` / `.html` | TP1 — Git colaborativo (18 páginas) |
 | `TP2-informe.pdf` / `.html` | TP2 — Contenedores: la app del semestre (21 páginas) |
+| `TP3-informe.pdf` / `.html` | TP3 — Planificación y trazabilidad (15 páginas) |
 | `build-informe.py` | Regenera el HTML del TP1 a partir de las imágenes de `../img/` |
 | `build-informe-tp2.py` | Ídem para el TP2 |
+| `build-informe-tp3.py` | Ídem para el TP3 |
 | `render-terminal.py` | Renderiza la salida **real** de una terminal como imagen, para las evidencias |
 
 El `.html` es la fuente: texto versionable y diffeable, con las imágenes embebidas en base64. El

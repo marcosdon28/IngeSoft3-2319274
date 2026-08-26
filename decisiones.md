@@ -310,3 +310,126 @@ Mismo esquema que en el TP1: usé **Claude Code (Claude Opus)** y lo verifiqué 
 
 Lo que **no** delegué: la elección de la app y su dominio, las 7 reglas de negocio, la decisión de
 llamar a la API por ruta relativa en vez de URL absoluta, y qué persiste y qué no.
+
+---
+
+## TP3 — Planificación y trazabilidad
+
+### La duración del sprint: 1 semana
+
+Elegí **una semana**, alineada al ciclo real de entrega de la materia: la cátedra publica un TP por
+semana y la defensa P1 cae en la clase 5. Si el sprint durara dos semanas, el tablero mostraría un
+ritmo que no es el que efectivamente tengo — planificaría contra un calendario y trabajaría contra
+otro.
+
+El argumento general, más allá de esta materia: **el sprint debería durar lo que dura el ciclo de
+feedback**. Sprints largos retrasan el momento en que uno se entera de que estimó mal; sprints muy
+cortos gastan más tiempo en la ceremonia que en el trabajo. Acá el feedback llega semanalmente —cada
+clase—, así que una semana es lo que corresponde.
+
+Sprint 1: **26/08/2026 – 01/09/2026**.
+
+### El límite de trabajo en progreso: 2
+
+Apliqué la regla de arranque del enunciado: **cantidad de personas + 1**. Trabajando solo, 2.
+
+El «más uno» no es holgura arbitraria: es la **válvula** para cuando algo queda esperando por fuera
+de mí —una revisión, una respuesta, un pipeline corriendo— y necesito avanzar en otra cosa sin dejar
+la primera a medias. Sin esa unidad extra, el límite obliga a elegir entre bloquearse o hacer trampa.
+
+Por qué un límite en primer lugar: el trabajo empezado y no terminado no vale nada. Cuatro cosas al
+60 % entregan cero; dos al 100 % entregan dos. El límite hace **visible** ese costo, que si no queda
+invisible hasta que la fecha llega.
+
+- **Qué me haría subirlo**: sumar gente al equipo (la regla escala con personas), o descubrir que me
+  bloqueo seguido esperando algo externo que no controlo.
+- **La señal de que quedó demasiado alto**: **si nunca lo alcanzo**. Un límite que nunca frena nada no
+  está limitando: es decorativo. Y si lo subiera a diez, con una sola persona, dejaría de existir
+  como límite — sería el mismo tablero sin límite, con un número al lado.
+
+### Diagnóstico de la historia mal escrita
+
+El issue [#15](https://github.com/marcosdon28/IngeSoft3-2319274/issues/15) —creado a propósito para
+diagnosticarlo, y cerrado— dice:
+
+> *Como desarrollador quiero crear la tabla usuarios para guardar los datos.*
+
+**Por qué está mal escrita**: tiene la **forma** de historia de usuario pero es una **tarea técnica
+disfrazada**. Una historia describe **valor para alguien**, y acá el «para guardar los datos» no es
+un beneficio: es la definición de lo que hace una tabla. El «como desarrollador» tampoco ayuda —el
+desarrollador es quien la implementa, no quien recibe el valor—. Y sobre todo: **no tiene criterios
+de aceptación verificables**. ¿Cuándo está terminada? ¿Con qué columnas? ¿Qué se puede hacer una vez
+que existe que antes no se podía? Nada de eso se puede comprobar. Es también una historia
+**horizontal**: entrega una capa técnica, no una rebanada de funcionalidad que alguien pueda usar.
+
+**Cómo la reescribiría**: partiendo de quién se beneficia y de qué puede hacer después.
+
+> *Como encargado de depósito quiero registrarme con usuario y contraseña para que cada movimiento de
+> stock quede asociado a quien lo hizo.*
+>
+> **Criterios de aceptación**
+> - [ ] Un usuario nuevo se registra con email y contraseña y queda habilitado para operar
+> - [ ] El email es único: registrarse con uno ya usado devuelve un error explicando por qué
+> - [ ] Cada movimiento registrado guarda qué usuario lo hizo, y se ve en el historial
+> - [ ] Un usuario sin sesión iniciada no puede registrar movimientos
+
+La tabla `usuarios` **sigue haciendo falta** — pero pasa a ser una **tarea** de esa historia, que es
+su lugar. La diferencia no es de redacción: es de **nivel**. La historia dice qué valor se entrega;
+la tarea, qué hay que construir para entregarlo.
+
+### Otras decisiones del práctico
+
+| Decisión | Por qué |
+|---|---|
+| **El bug va al costado, no colgando de la historia** | La jerarquía cuenta **lo que se planificó construir**: la épica es el objetivo, las historias el valor, las tareas los pasos. Un bug es un defecto de algo **ya construido** — no era parte del plan. Y colgarlo de la historia que lo originó tiene un efecto feo: esa historia ya está cerrada, y su barra de progreso pasaría a mentir. *(Matiz que sé que existe: hay equipos que sí los cuelgan, no para planificar sino para **medir** cuántos defectos se les escapan por sprint; y en Azure Boards un Bug puede ser hijo de una Feature. O sea que «al costado» es una convención de trabajo, no una regla de la herramienta.)* |
+| **El bug es real, no el del video** | El enunciado permite usar el del video, pero dice que uno propio es mejor. El nuestro es reproducible en vivo y está diagnosticado hasta la línea de código: `frontend/src/App.jsx`, donde `recargar()` corre una sola vez al montar y el `catch` no reintenta. Un bug prestado no se puede reproducir delante de nadie |
+| **Sub-issues y no task-lists** | Las task-lists (`- [ ] #12` en el cuerpo) se ven parecidas pero **no crean la relación padre-hijo navegable**: no se puede subir de la tarea a su historia y de ahí a la épica. El enunciado pide navegable, así que van sub-issues |
+| **La épica sin criterios de aceptación** | No se verifica por sí misma: se da por cerrada cuando sus historias lo están. Los criterios van donde algo se puede comprobar, que es la historia |
+| **`Closes #12` en la descripción del PR, no en el mensaje del commit** | Por mensaje de commit el issue **igual se cierra**, pero **no queda enlazado al PR** — y ese enlace es justo lo que se mira al corregir y lo que permite navegar de la tarea al código |
+| **El número que cierra es el de la TAREA, no el de la historia** | Un PR implementa una tarea concreta. Si cerrara la historia #11, la estaría dando por terminada con la mitad del trabajo sin hacer: la tarea #13 sigue abierta. La trazabilidad quedaría mintiendo |
+| **Los items se agregaron al Project por comando** | `gh project create` no configura el *auto-add* (por eso el proyecto nace con 6 workflows y no con 7). En vez de depender de esa automatización, los agregué explícitamente con `gh project item-add`: queda reproducible en un comando y no depende de que un workflow esté encendido |
+
+### Problemas encontrados y cómo los resolví
+
+- **`gh` no puede crear campos de tipo *Iteration*, pero la API GraphQL sí.** El CLI sólo acepta
+  `TEXT`, `NUMBER`, `DATE` y `SINGLE_SELECT` en `gh project field-create`, así que asumí que el campo
+  Sprint había que crearlo a mano. Probé igual la mutación `createProjectV2Field` con
+  `dataType: ITERATION` y **funcionó**. Lección: que el CLI no exponga algo no significa que la API no
+  lo soporte — vale la pena mirar el esquema antes de resignarse a la interfaz web.
+
+- **…pero el campo nace sin configurar, y eso sí es sólo web.** La mutación crea el campo con
+  `duration: 0` y **cero iteraciones**: no existe mutación pública para definir la duración ni generar
+  las iteraciones. Esa parte —y con ella la asignación del sprint, la vista de tablero y el límite de
+  trabajo en progreso— se hace desde la interfaz.
+
+- **La interfaz de Projects v2 no se deja automatizar.** Intenté configurar la iteración con
+  Playwright y no fue viable: es una aplicación React propia donde los controles no exponen roles
+  accesibles estándar (el botón *New view* no es un `button` con nombre accesible; el selector de
+  fechas usa `div`s con `aria-label` dinámicos del tipo `"Martes, September 1 (Inside selected
+  range)"`, que cambian según el estado de la selección). Después de varios intentos frené y lo hice
+  a mano: automatizar algo que tarda treinta segundos por interfaz no se justifica, y forzar
+  selectores frágiles hubiera dejado un procedimiento que se rompe con el próximo rediseño.
+
+- **El scope `project` no venía en el token.** `gh project list` fallaba con
+  `your authentication token is missing required scopes [read:project]`. Se resuelve con
+  `gh auth refresh -h github.com -s project`, que abre un device flow — el mismo mecanismo que hizo
+  falta en el TP2 para `write:packages`.
+
+- **Los Projects de usuario nacen privados.** Y el entregable de este TP **es la URL**: si se entrega
+  privada, quien la abre ve un 404 — ni siquiera «no tenés permiso», sino «no existe». Se cambia con
+  `gh project edit 2 --owner "@me" --visibility PUBLIC`, que además es **idempotente**: pedirle
+  `PUBLIC` a un proyecto que ya lo es no da error. El control que hice antes de dar por cerrado el
+  práctico fue abrir la URL en una ventana de incógnito.
+
+### Declaración de uso de IA — TP3
+
+| Qué fue asistido | Cómo lo verifiqué |
+|---|---|
+| Creación de labels, issues, jerarquía y Project por CLI | Verifiqué la jerarquía **consultándola de vuelta por GraphQL** (`subIssues`), no mirando la pantalla: épica → historia → dos tareas, con el bug fuera del árbol |
+| La redacción de la historia y sus criterios de aceptación | Los revisé uno por uno preguntándome **cómo se comprueba cada uno**. El que no pasaba esa prueba, no entraba: por eso en el issue hay una tabla que dice, para cada criterio, qué hay que mirar para saber si está cumplido |
+| El diagnóstico de la historia mal escrita | Es mío. Creé el issue a propósito, lo leí, y la reescritura sale de identificar qué faltaba: el beneficiario real, el valor, y criterios verificables |
+| El PR de trazabilidad | Verifiqué que **el PR hace lo que el issue dice** (la tarea era escribir el workflow, y el PR crea exactamente ese archivo), y después comprobé por API que `#12` quedó cerrada, enlazada al PR #16, y que `#11`, `#13` y `#10` siguen **abiertas** — que es el estado correcto |
+| El bug | Lo encontré leyendo mi propio código y lo reproduje: `docker compose down -v && up -d` y abrir la app enseguida. El issue cita la línea exacta y explica por qué pasa |
+
+Lo que **no** delegué: la duración del sprint, el número del límite de trabajo en progreso, el
+diagnóstico de la historia mal escrita, y la decisión de usar un bug propio en vez del de la guía.
