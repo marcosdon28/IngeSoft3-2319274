@@ -95,6 +95,13 @@ entregables. Versionado semántico: es la primera versión estable, así que `MA
 `1.0.0` (no hay compatibilidad previa que romper, ni funcionalidad agregada, ni bug corregido: es el
 punto de partida).
 
+> 📋 **Por qué la página en vivo puede mostrar otro commit.** La captura se tomó **en el momento de
+> publicar la release**, con el tag donde estaba entonces. Al cerrar el práctico moví `v1.0.0` al
+> commit final —para que el tag marque el estado efectivamente entregado, como pide el reglamento—,
+> así que la release en vivo apunta a un commit posterior al de la imagen. El movimiento del tag
+> está declarado en [`decisiones.md`](decisiones.md). La evidencia documenta **cuándo se publicó la
+> release**, no en qué commit terminó el tag.
+
 ---
 
 ### Cómo se tomaron estas capturas
