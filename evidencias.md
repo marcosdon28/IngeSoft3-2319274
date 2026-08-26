@@ -190,3 +190,45 @@ Sin multi-stage la imagen del backend pesaría 1,62 GB en vez de 326 MB — y vi
 un compilador adentro, que es superficie de ataque que no hace falta. En el frontend el argumento es
 todavía más claro: una SPA compilada son **archivos estáticos**, así que Node no tiene nada que hacer
 en la imagen final.
+
+### 5. Las imágenes publicadas en el registry
+
+![package inventario-backend, público](img/tp2-11-package-backend.png)
+
+`ghcr.io/marcosdon28/inventario-backend:v0.1.0` con la etiqueta **Public** al lado del nombre y el
+tag semver `v0.1.0`. La misma página muestra el comando exacto con el que cualquiera la baja. La otra
+imagen, `inventario-frontend:v0.1.0`, está publicada igual.
+
+![listado de packages](img/tp2-10-packages.png)
+
+Los packages nacen **privados**: hubo que cambiarles la visibilidad a *Public* una por una. Mientras
+estén privados nadie puede hacer `docker pull` — ni la cátedra, ni otra máquina, ni el pipeline del
+TP7.
+
+### 6. La prueba de verdad: bajarlas sin credenciales
+
+![pull anónimo y arranque desde el registry](img/tp2-09-registry-pull.png)
+
+Decir que una imagen está pública es fácil; la prueba es **bajarla estando deslogueado**. La
+secuencia de la captura:
+
+1. **`docker compose down --rmi local`** — borra las imágenes que construyó compose.
+2. **`docker builder prune -af`** — vacía el **cache de construcción**, que también guarda capas.
+   Es el paso que nadie ve venir: sin él, el `pull` contesta `Already exists` en todo y no baja nada,
+   porque Docker no guarda imágenes sino **capas identificadas por su contenido**. Acá liberó 40 GB.
+3. **`docker logout ghcr.io`** — dejo de estar autenticado.
+4. **`docker pull`** — baja capa por capa (`Pull complete`), sin credenciales.
+5. **`docker compose -f docker-compose.registry.yml up -d`** — el sistema completo levanta
+   **descargando** en vez de construir. En el `ps` se ve la diferencia: la columna *IMAGE* dice
+   `ghcr.io/marcosdon28/inventario-backend:v0.1.0`, no un nombre local.
+
+Eso es lo que van a hacer los entornos de QA y producción del TP6, y lo que va a publicar el pipeline
+del TP7: el registry es el puente entre el código y los entornos.
+
+> ⚠️ **Un detalle honesto sobre arquitecturas.** Estas imágenes se construyeron en una Mac con chip
+> ARM. `docker manifest inspect` confirma que el manifiesto tiene una sola plataforma real:
+> `linux/arm64` (el `unknown/unknown` que aparece al lado es el manifiesto de atestación que agrega
+> BuildKit, no una arquitectura). Alguien con Intel/AMD recibiría
+> `no matching manifest for linux/amd64` — y **los runners de GitHub Actions son Intel**, así que
+> esto va a aparecer en el TP7. Ahí se resuelve con `docker buildx`, que construye para las dos
+> arquitecturas a la vez. Para este práctico alcanza con saberlo y declararlo.
