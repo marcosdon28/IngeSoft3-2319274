@@ -138,3 +138,173 @@ de merge, y el criterio de qué va commiteado y qué no.
 La verificación real de todo esto es la del enunciado: si no lo puedo explicar en la defensa, no
 cuenta — y por eso llevo además un `aprendizajes.md` local donde anoto qué hace cada comando y qué
 me confundió.
+
+---
+
+## TP2 — Contenedores: la app del semestre
+
+### Qué app elegí y por qué
+
+**Un sistema de inventario de productos**, escrito por mí para esta materia: FastAPI (Python 3.12) +
+React/Vite + PostgreSQL 16. La escribí en vez de adoptar un proyecto de GitHub porque el criterio 5
+de `elegir-app.md` —*entenderla lo suficiente para modificarla en vivo*— se cumple solo cuando el
+código es propio, y en la mesa del Integrador hay que hacer un cambio delante del profesor.
+
+Contra los cinco criterios de la guía:
+
+| Criterio | Cómo lo cumple |
+|---|---|
+| **1. Que corra hoy** | `cp .env.example .env && docker compose up -d --build` levanta los tres servicios. No necesita Python, Node ni PostgreSQL instalados |
+| **2. Conocer los comandos de build** | `pip install -r requirements.txt` + `uvicorn app.main:app` en el back; `npm ci` + `npm run build` en el front. Son literalmente las líneas de los Dockerfiles |
+| **3. Dónde se configura la base** | En **una sola** variable de entorno: `DATABASE_URL`, leída en `app/config.py`. No está hardcodeada en ningún lado — es lo que va a permitir que la misma imagen apunte a QA y a producción en el TP6 |
+| **4. Lógica para testear** | **7 reglas de negocio**, listadas abajo. El TP5 pide 8 tests de backend y 4 de frontend: las reglas dan casos válidos, inválidos y de borde de sobra |
+| **5. Entenderla para modificarla** | Es código propio, en capas explícitas: los `services/` no importan FastAPI, así que una regla se lee y se cambia sin tocar HTTP |
+
+**Tamaño**: cuatro pantallas y tres entidades. `elegir-app.md` avisa que más grande no suma nota —
+sólo builds más lentos y más puntos de falla.
+
+**Las 7 reglas de negocio** (el corazón de la elección, porque son lo que se va a testear):
+
+| # | Regla | Por qué existe |
+|---|---|---|
+| 1 | Una salida no puede superar el stock disponible | El stock representa unidades físicas: nunca puede quedar negativo |
+| 2 | El SKU es único | Dos productos con el mismo SKU hacen imposible saber cuál se movió |
+| 3 | No se puede eliminar una categoría con productos asociados | Evita productos huérfanos; borrar en cascada destruiría datos sin avisar |
+| 4 | Precio y stock no negativos; cantidad de movimiento > 0 | Validación de dominio, en el borde de entrada |
+| 5 | Descuento por cantidad a partir de un umbral | Cálculo con casos de borde — el umbral es **inclusive** |
+| 6 | `stock <= stock_minimo` marca "bajo stock" | Es una **propiedad derivada**, no una columna: no puede desincronizarse del stock real |
+| 7 | Un producto inactivo no admite movimientos | Si a un producto dado de baja igual se le pueden cargar movimientos, la baja es decorativa |
+
+> 💡 Un caso que salió de probar la regla 5 y que vale como ejemplo de por qué los bordes importan:
+> con el umbral en 10 y 10 % de descuento, **llevar 9 unidades cuesta lo mismo que llevar 10**
+> (9 × 1800 = 16.200 y 10 × 1800 × 0,9 = 16.200). No es un bug —es lo que la regla dice— pero es
+> exactamente el tipo de cosa que un test de borde expone y una lectura del código no.
+
+### Arquitectura: MVC en FastAPI
+
+| Capa | Dónde vive | Qué sabe |
+|---|---|---|
+| **Model** | `app/models/` (SQLAlchemy) + `app/schemas/` (Pydantic) | Las entidades y el contrato de la API |
+| **Controller** | `app/routers/` + `app/services/` | Los routers traducen HTTP; los **services tienen las reglas** |
+| **View** | `frontend/src/` (React) | Presentación; las reglas de la vista viven aisladas en `lib/reglas.js` |
+
+La decisión que más importa: **los `services/` no importan FastAPI**. Lanzan excepciones propias
+(`ReglaDeNegocioError`) y los routers las traducen a códigos HTTP. Gracias a eso las reglas se
+testean llamando a una función, sin levantar un servidor — que es justo lo que el TP5 va a necesitar.
+Lo mismo del lado del front: `lib/reglas.js` son funciones puras, sin React ni `fetch` adentro.
+
+### Decisiones de contenerización
+
+| Decisión | Por qué |
+|---|---|
+| **Backend: `python:3.12` para build, `python:3.12-slim` para runtime** | La etapa de build trae compilador y herramientas para instalar dependencias; la final sólo necesita ejecutar. Medido: **1,62 GB contra 326 MB** — 5 veces más chica, y sin compilador adentro (menos superficie de ataque) |
+| **Las dependencias en un virtualenv (`/opt/venv`) que se copia entre etapas** | Es lo único que tiene que viajar. Ni pip, ni su cache, ni los wheels intermedios llegan a la imagen final |
+| **Frontend: `node:22-alpine` para build, `nginx:alpine` para servir** | Una SPA compilada son archivos estáticos: **Node no tiene nada que hacer en producción**. 229 MB contra 93 MB |
+| **El archivo de dependencias se copia ANTES que el código** | Cuando una capa cambia, Docker invalida esa capa y todas las siguientes. Con este orden, cambiar una línea de código no re-descarga las dependencias |
+| **`npm ci` y no `npm install`** | `ci` respeta el lockfile exacto: el build es reproducible. `install` puede resolver versiones distintas según cuándo se corra |
+| **Usuario sin privilegios en el backend** | El contenedor no corre como root. Si alguien logra ejecutar algo dentro, no lo hace con todos los permisos |
+| **Dos `.dockerignore`, uno por carpeta de build** | Docker los busca en el **contexto** que se le pasa (`./backend`, `./frontend`), no en la raíz del repo. Por eso son dos archivos con contenidos distintos |
+
+### Qué persiste y qué no
+
+Los contenedores son **efímeros por diseño**: la capa de escritura muere con el contenedor. Eso es
+una ventaja para la app (contenedores descartables ⇒ deploys y rollbacks triviales) y una catástrofe
+para los datos. Por eso el estado se separa explícitamente:
+
+- **Persiste**: el directorio de datos de PostgreSQL, montado en el volumen **nombrado**
+  `db_data:/var/lib/postgresql/data`. Sobrevive a `docker compose down`, a que el contenedor se
+  destruya y se recree, y a un cambio de imagen.
+- **No persiste**: absolutamente todo lo demás. El backend y el frontend no escriben nada.
+
+Usé **volumen nombrado y no bind mount** (`./datos:/var/lib/...`): en Mac hay una máquina virtual en
+el medio, así que un bind mount del directorio de datos de PostgreSQL es notablemente más lento y da
+problemas de permisos.
+
+`down` apaga; `down -v` además **olvida**. La evidencia 7 del TP2 muestra las dos cosas.
+
+### `depends_on` no alcanza: por qué el healthcheck
+
+`depends_on` garantiza el orden de **arranque**, no de **disponibilidad**. Que el contenedor de
+PostgreSQL haya arrancado no significa que acepte conexiones — hay varios segundos entre una cosa y
+la otra, y en ese hueco el backend se conecta, falla y se muere. Por eso el servicio `db` declara un
+`healthcheck` con `pg_isready` y el backend espera con `condition: service_healthy`. En los logs se
+ve literal: `db Waiting → db Healthy → backend Starting`.
+
+La distinción "arrancó" contra "está listo" reaparece en cada sistema distribuido, y es una de las
+preguntas de defensa más previsibles de este práctico.
+
+### Cómo se hablan los tres servicios
+
+- **backend → db**: por el **nombre del servicio** (`Host=db`). Compose crea una red interna con DNS
+  embebido, así que no importa en qué IP cayó el contenedor de la base: siempre es `db`.
+- **frontend → backend**: el JavaScript de la SPA **corre en el browser**, que vive en mi máquina y
+  no dentro de la red de compose — así que el front *no puede* pedirle nada a `http://backend:8000`.
+  Elegí la solución (a) de la guía: la SPA llama a **rutas relativas** (`/api/...`) y quien las
+  traduce es el servidor de Vite en desarrollo y **nginx** en el contenedor. Dos consecuencias
+  buenas: la misma imagen sirve en cualquier entorno (no hay URL compilada adentro), y como para el
+  browser todo sale del mismo origen, **no hay CORS que configurar**.
+- El `proxy_pass` de nginx usa una **variable** (`set $backend_api http://backend:8000;`) en vez del
+  nombre escrito directo. Con el nombre directo, nginx lo resuelve al arrancar y, si el backend
+  todavía no existe, se niega a levantar con `host not found in upstream`.
+
+### Los secretos
+
+La contraseña de la base va en `${DB_PASSWORD}`, que sale de un **`.env` que no se commitea** (está
+en `.gitignore`). Lo que sí se versiona es `.env.example`, que documenta qué variables hacen falta
+sin traer ningún valor real. Por eso el arranque son **dos comandos y no uno**: `cp .env.example .env`
+y después `docker compose up -d`. Ese paso manual no es un defecto de la entrega — es el precio de
+que el secreto no viaje en el repositorio. En el TP4 esos secretos migran a los secrets de la
+plataforma de CI.
+
+### Problemas encontrados y cómo los resolví
+
+- **La app de práctica es .NET y no tenía el SDK instalado.** La primera pasada de la guía se hace
+  sobre el sample de la cátedra (.NET 8), y `brew install --cask dotnet-sdk` pide contraseña de
+  administrador. Lo resolví con el script oficial `dot.net/v1/dotnet-install.sh --channel 8.0`, que
+  instala en `~/.dotnet` **sin privilegios**. Dato para tener a mano: para *construir la imagen* no
+  hacía falta —el SDK vive dentro del contenedor— pero sí para el paso de la guía que corre la app
+  nativa antes de contenerizarla, que es el que te enseña cómo se ve "funcionando" antes de meter
+  Docker en el medio.
+
+- **`npm ci` falló en el build: no había `package-lock.json`.** Escribí el `package.json` a mano y
+  fui directo al `docker build`, sin haber corrido nunca `npm install`. `npm ci` **exige** el
+  lockfile — es justamente lo que lo hace reproducible. Se resolvió con un `npm install` local que lo
+  generó, y el lockfile quedó commiteado, que es donde tiene que estar.
+
+- **`docker images mcr.microsoft.com/dotnet/sdk:8.0` no mostraba nada.** Docker 29 guarda las
+  imágenes base de las etapas de build en el **cache de construcción**, no en el store de imágenes,
+  así que el comando de comparación de la guía devolvía la tabla vacía. No estaba roto: hay que
+  bajarlas explícitamente con `docker pull` para poder compararlas. Es un detalle de versión, y vale
+  la pena saberlo porque el mensaje no sugiere nada.
+
+- **Los packages de ghcr nacen privados.** Después del `push`, `gh api /user/packages` los mostraba
+  como `private` — y mientras lo estén, nadie puede hacer `docker pull`: ni la cátedra, ni otra
+  máquina, ni un pipeline. Hay que cambiar la visibilidad a **Public** desde la página del package,
+  y hacerlo **para las dos** imágenes.
+
+- **El token de `gh` no tenía permiso para publicar imágenes.** El scope `write:packages` no venía en
+  el token del TP1. Se agrega con `gh auth refresh -h github.com -s write:packages`, que abre un
+  device flow en el navegador. Aviso de la guía que conviene tener presente: el `docker login` da
+  `Succeeded` con cualquier token válido y **recién falla el `push`** con `denied` — el login
+  exitoso no garantiza el permiso. En mi caso el `refresh` sí tomó el scope y el push funcionó, pero
+  la comprobación real es empujar algo.
+
+- **La arquitectura de las imágenes.** Estas imágenes se construyeron en una Mac con chip ARM, así
+  que sirven para máquinas ARM. Alguien con Intel/AMD recibiría
+  `no matching manifest for linux/amd64` — y los runners de CI del TP7 son Intel. Para este práctico
+  alcanza con saberlo y declararlo; en el **TP7** se resuelve con `docker buildx`, que construye para
+  las dos arquitecturas a la vez.
+
+### Declaración de uso de IA — TP2
+
+Mismo esquema que en el TP1: usé **Claude Code (Claude Opus)** y lo verifiqué así.
+
+| Qué fue asistido | Cómo lo verifiqué |
+|---|---|
+| El código de la app (modelos, schemas, services, routers, componentes de React) | **Probé las 7 reglas contra la API levantada**, una por una, comprobando el código HTTP y el mensaje de error de cada una: SKU duplicado → 400, borrar categoría con productos → 400, salida mayor al stock → 400, cantidad cero → 422, producto inactivo → 400, y el descuento en el borde exacto (9 sin descuento, 10 con descuento) |
+| Los Dockerfiles, el compose y el `nginx.conf` | Los leí línea por línea y **los probé**: el sistema levanta con un comando, el front habla con el back por el proxy de nginx, y la prueba de persistencia se comporta como esperaba (`down` conserva, `down -v` borra). Los tamaños de imagen los medí, no los estimé |
+| La primera pasada sobre el sample de la cátedra | La hice completa antes de tocar mi app, que es lo que el enunciado pide. Ahí vi el 502 del front sin red compartida y la diferencia SDK/runtime con números reales — cuando después apareció lo mismo en mi app, ya sabía qué era |
+| Redacción de esta sección y del informe | Los revisé y corregí para que digan lo que efectivamente pasó. Los problemas listados son los que me pasaron a mí |
+
+Lo que **no** delegué: la elección de la app y su dominio, las 7 reglas de negocio, la decisión de
+llamar a la API por ruta relativa en vez de URL absoluta, y qué persiste y qué no.

@@ -1,0 +1,74 @@
+:root {
+  --fondo: #f4f6fa;
+  --panel: #ffffff;
+  --borde: #dfe4ec;
+  --texto: #1c2430;
+  --suave: #64707f;
+  --acento: #1f4e9c;
+  --ok: #12855a;
+  --alerta: #b4451a;
+  --peligro: #c0392b;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--fondo); color: var(--texto); }
+
+header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--borde);
+  padding: 18px 28px 0;
+}
+header h1 { margin: 0; font-size: 21px; }
+header p { margin: 4px 0 14px; color: var(--suave); font-size: 13px; }
+
+nav { display: flex; gap: 4px; }
+nav button {
+  background: none; border: none; border-bottom: 3px solid transparent;
+  padding: 9px 15px; font-size: 14px; color: var(--suave); cursor: pointer;
+}
+nav button.activa { color: var(--acento); border-bottom-color: var(--acento); font-weight: 600; }
+
+main { padding: 24px 28px 60px; max-width: 1080px; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--borde);
+  border-radius: 8px; padding: 18px; margin-bottom: 20px;
+}
+.panel h2 { margin: 0 0 14px; font-size: 15px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--borde); }
+th { color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+td.num, th.num { text-align: right; }
+
+form.fila { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--suave); }
+input, select {
+  border: 1px solid var(--borde); border-radius: 6px;
+  padding: 8px 10px; font-size: 14px; background: #fff; color: var(--texto);
+}
+button.accion {
+  background: var(--acento); color: #fff; border: none; border-radius: 6px;
+  padding: 9px 16px; font-size: 14px; cursor: pointer;
+}
+button.accion:disabled { background: #a9b4c4; cursor: not-allowed; }
+button.link { background: none; border: none; color: var(--peligro); cursor: pointer; font-size: 13px; }
+
+.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.chip.bajo { background: #fdeee7; color: var(--alerta); }
+.chip.ok { background: #e6f5ee; color: var(--ok); }
+.chip.inactivo { background: #eceff3; color: var(--suave); }
+.chip.entrada { background: #e6f5ee; color: var(--ok); }
+.chip.salida { background: #fdeee7; color: var(--alerta); }
+
+.error { background: #fdeceb; border: 1px solid #f3c6c2; color: var(--peligro);
+         padding: 9px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 14px; }
+.aviso { color: var(--alerta); font-size: 13px; }
+.vacio { color: var(--suave); font-size: 14px; padding: 12px 0; }
+
+.tarjetas { display: flex; gap: 14px; flex-wrap: wrap; }
+.tarjeta { flex: 1; min-width: 165px; background: var(--panel);
+           border: 1px solid var(--borde); border-radius: 8px; padding: 16px; }
+.tarjeta .valor { font-size: 27px; font-weight: 700; }
+.tarjeta .rotulo { color: var(--suave); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
