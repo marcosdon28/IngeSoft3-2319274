@@ -103,6 +103,7 @@ cualquier entorno (en desarrollo lo resuelve el proxy de Vite; en el contenedor,
 | TP | Tema | Versión |
 |---|---|---|
 | TP1 | Git colaborativo | [`v1.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v1.0.0) |
+| TP2 | Contenedores: la app del semestre | [`v2.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v2.0.0) |
 
 Cada práctico se cierra con su tag y su release: el tag marca el commit exacto con el que quedó
 entregado.
