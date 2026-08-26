@@ -96,7 +96,7 @@ A('''<section class="cover">
   <div class="sub">Git colaborativo</div>
   <div class="rule"></div>
   <table>
-    <tr><td>Alumno</td><td><span style="color:#c0392b;font-weight:600">⟨ completar: nombre y apellido ⟩</span></td></tr>
+    <tr><td>Alumno</td><td>Marcos Don</td></tr>
     <tr><td>Matrícula</td><td>2319274</td></tr>
     <tr><td>Usuario GitHub</td><td>marcosdon28</td></tr>
     <tr><td>Repositorio</td><td>github.com/marcosdon28/IngeSoft3-2319274</td></tr>
