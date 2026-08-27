@@ -111,3 +111,5 @@ Planificación y tablero: **[IngSoft3 — Inventario DevOps](https://github.com/
 
 Cada práctico se cierra con su tag y su release: el tag marca el commit exacto con el que quedó
 entregado.
+
+<!-- El pipeline verifica cada PR antes del merge. -->
