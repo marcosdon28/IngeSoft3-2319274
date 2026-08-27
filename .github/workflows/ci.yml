@@ -20,15 +20,15 @@ jobs:
         run: echo "Rama $RAMA · commit $GITHUB_SHA"
 
       - name: Bajar el código al runner
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Preparar el constructor que sabe cachear
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Construir la imagen del backend
         # El pipeline NO compila por su cuenta: usa el Dockerfile del TP2, que es
         # la misma definición de build que después se despliega.
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           push: false                    # todavía no se publica: eso es el TP7
@@ -45,13 +45,13 @@ jobs:
         run: echo "Rama $RAMA · commit $GITHUB_SHA"
 
       - name: Bajar el código al runner
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Preparar el constructor que sabe cachear
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Construir la imagen del frontend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           push: false
