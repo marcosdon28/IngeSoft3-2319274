@@ -1,4 +1,6 @@
 # Proyecto IngSoft3 — Inventario de productos (UCC 2026)
+
+[![CI](https://github.com/marcosdon28/IngeSoft3-2319274/actions/workflows/ci.yml/badge.svg)](https://github.com/marcosdon28/IngeSoft3-2319274/actions/workflows/ci.yml)
 Ingeniería del Software 3 - UCC 2026 | Repo del semestre: TP1..TP9 + Integrador
 
 Sistema de gestión de inventario: productos, categorías y movimientos de stock, con las reglas de
@@ -111,5 +113,3 @@ Planificación y tablero: **[IngSoft3 — Inventario DevOps](https://github.com/
 
 Cada práctico se cierra con su tag y su release: el tag marca el commit exacto con el que quedó
 entregado.
-
-<!-- El pipeline verifica cada PR antes del merge. -->
