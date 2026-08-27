@@ -110,6 +110,7 @@ Planificación y tablero: **[IngSoft3 — Inventario DevOps](https://github.com/
 | TP1 | Git colaborativo | [`v1.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v1.0.0) |
 | TP2 | Contenedores: la app del semestre | [`v2.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v2.0.0) |
 | TP3 | Planificación y trazabilidad | [`v3.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v3.0.0) |
+| TP4 | CI: Pipelines as Code | [`v4.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v4.0.0) |
 
 Cada práctico se cierra con su tag y su release: el tag marca el commit exacto con el que quedó
 entregado.

@@ -433,3 +433,161 @@ la tarea, qué hay que construir para entregarlo.
 
 Lo que **no** delegué: la duración del sprint, el número del límite de trabajo en progreso, el
 diagnóstico de la historia mal escrita, y la decisión de usar un bug propio en vez del de la guía.
+
+---
+
+## TP4 — CI: Pipelines as Code
+
+### La estructura del pipeline: por qué esos jobs y por qué en paralelo
+
+Dos jobs, `build-backend` y `build-frontend`, uno por cada imagen que tiene la app.
+
+**Por qué separados**: son **artefactos independientes**. Ninguno necesita el resultado del otro, no
+comparten código ni dependencias, y si uno falla quiero saber cuál sin leer un log mezclado. Un solo
+job que construyera las dos imágenes me daría un único check en rojo sin decir cuál se rompió.
+
+**Por qué en paralelo**: es el default de GitHub Actions —los jobs corren simultáneamente salvo que
+se declare `needs:`— y acá no hay ninguna dependencia que justifique serializarlos. Medido sobre la
+primera corrida:
+
+| | Tiempo |
+|---|---|
+| `build-backend` | 1 m 53 s |
+| `build-frontend` | 47 s |
+| **Suma (si fueran secuenciales)** | 2 m 40 s |
+| **Reloj real (en paralelo)** | **1 m 53 s** |
+
+Los dos arrancaron en el mismo instante (`12:45:20Z`), así que el tiempo total es el del **más
+lento**, no la suma. Y el ahorro crece con cada job que se sume: en el TP5 entran los tests.
+
+**Lo que los jobs NO comparten**: filesystem. Cada uno corre en un runner limpio y distinto — son
+dos máquinas. Si el TP7 necesitara que un job use algo que produjo otro, tendría que viajar como
+artefacto o declararse `needs:` para el orden. Hoy no hace falta.
+
+### Por qué el pipeline construye con mi Dockerfile en vez de compilar por su cuenta
+
+Porque si el pipeline compilara aparte —con `pip install` y `npm run build` escritos en el YAML—
+habría **dos definiciones de build**: la del Dockerfile y la del workflow. Tarde o temprano divergen,
+y el día que pase estaría **verificando una compilación distinta de la que después se despliega**. El
+pipeline daría verde sobre algo que no es lo que llega a producción.
+
+Usando el Dockerfile del TP2 hay **una sola** definición: la misma que corre en mi máquina, la que
+verifica el pipeline y la que se va a publicar en el TP7.
+
+Un efecto lateral que se nota al leer el YAML: **no hay una sola línea de Python ni de Node ahí
+adentro**. El workflow no sabe cómo se construye mi app — eso lo sabe el Dockerfile. Por eso este
+mismo archivo le serviría a cualquier compañero, sea cual sea su stack.
+
+### Qué cachea el pipeline, y qué pasa si el cache desaparece
+
+Se cachean las **capas de la imagen**, en el cache de GitHub Actions (`type=gha`).
+
+**Qué se reutiliza y qué no** — medido en la segunda corrida del backend, 7 capas `CACHED`:
+
+| Capa | ¿Se reutiliza? | Por qué |
+|---|---|---|
+| La imagen base (`python:3.12`, `python:3.12-slim`) | ✅ sí | No cambia nunca |
+| `COPY requirements.txt` + `RUN pip install` | ✅ sí | Sólo se rehace si cambia `requirements.txt` |
+| `COPY app ./app` | ❌ no, si toqué código | Es lo que cambia en casi todos los PRs |
+| Las capas posteriores a una que cambió | ❌ no | Docker invalida esa capa **y todas las siguientes** |
+
+Ese orden no es casual: es la razón por la que el Dockerfile del TP2 copia las dependencias **antes**
+que el código. Al revés, cada cambio de una línea reinstalaría todo.
+
+**El resultado, medido**: `build-backend` pasó de **1 m 53 s a 21 s** entre la primera y la segunda
+corrida. Cinco veces más rápido.
+
+**Si el cache desaparece, no pasa nada grave: el pipeline funciona igual, sólo más lento.** El cache
+es una **optimización**, no una dependencia — vuelve a construir todo desde cero y a repoblarlo. Es
+importante que sea así: un pipeline que *necesita* el cache para funcionar está roto, porque el cache
+se desaloja solo (GitHub lo purga por antigüedad y por límite de tamaño).
+
+**El `scope` no es opcional cuando hay dos jobs.** Sin él los dos usarían el mismo estante por
+default y **se pisarían**: el último en terminar deja su cache y borra el del otro. El síntoma es
+desconcertante porque parece azar — un job muestra `CACHED` y el otro no, y cuál cambia en cada
+corrida. Con `scope=backend` y `scope=frontend`, cada uno reutiliza siempre lo suyo.
+
+### El gate: qué exige hoy mi `main`
+
+Dos condiciones, y hacen falta las dos:
+
+1. **Que el cambio entre por Pull Request** — del TP1, con `enforce_admins` para que me alcance
+   también a mí.
+2. **Que los dos checks estén en verde** — `build-backend` y `build-frontend` como
+   *required status checks*.
+
+> La puerta sin verificación no alcanza, y la verificación sin puerta tampoco.
+
+**`strict: true`** agrega una tercera exigencia: que la rama esté **actualizada con `main`** antes de
+mergear. Sin eso, un PR podría entrar en verde habiendo sido verificado contra un `main` que ya no
+existe — y romper `main` sin que ningún check lo haya visto venir. Lo demostré con dos PRs abiertos a
+la vez: al mergear uno, el otro quedó `BEHIND` con sus **dos checks en verde** y el botón de merge
+igualmente deshabilitado, pidiendo *Update branch*.
+
+Un detalle de vocabulario que confunde y conviene tener claro: al romper el build a propósito, la API
+devolvía `mergeable: MERGEABLE` y `mergeStateStatus: BLOCKED`. **No es contradictorio**:
+`mergeable` habla de **conflictos de contenido** (no había ninguno) y `mergeStateStatus` habla de
+**política** (el gate). Son dos preguntas distintas.
+
+### La demostración del gate
+
+Secuencia completa, en el PR #20:
+
+1. **Rojo**: un `import` a un archivo inexistente en `frontend/src/App.jsx` → `build-frontend`
+   falla a los 30 s, `build-backend` sigue en verde.
+2. **Bloqueado**: los dos checks marcados *Required*, botón *Squash and merge* deshabilitado.
+   `gh pr merge` lo confirma desde la consola:
+   `the base branch policy prohibits the merge`.
+3. **Fix**: un commit que saca el import. El pipeline **re-corre solo**, sin tocar nada.
+4. **Verde** → `mergeStateStatus: CLEAN` → merge.
+
+**Por qué rompí el frontend y no el backend.** Es una diferencia de stack que vale la pena entender:
+el frontend **se empaqueta** —Vite resuelve los imports al hacer el bundle—, así que un import roto
+lo tumba durante `npm run build`. El backend es **Python: no compila ni se empaqueta**, y su
+Dockerfile **nunca ejecuta mi código** — sólo instala dependencias. Escribir `import estonoexiste` en
+un `.py` daría **verde igual**. Para romper el backend habría que romper la **dependencia**: un
+paquete inexistente en `requirements.txt`. Desde el TP5, con los tests adentro del pipeline, el
+código del backend sí va a poder romperlo.
+
+### Problemas encontrados y cómo los resolví
+
+- **Estaba usando versiones viejas de las actions.** Empecé con `actions/checkout@v4`,
+  `docker/setup-buildx-action@v3` y `docker/build-push-action@v6` — dos o tres majors por detrás de
+  las que usa la guía. Funcionaban, así que el pipeline en verde no me lo iba a avisar nunca. Lo
+  verifiqué consultando las releases de cada repositorio y las subí a `v6`, `v4` y `v7` en un PR
+  aparte, que **pasó por su propio gate**. Las tres van con major explícito y no con `@main`: sin
+  versión fijada, el pipeline cambiaría solo el día que sus autores publiquen algo.
+
+- **Buscar `CACHED` en los logs por la API no funciona.** `gh api .../actions/jobs/<id>/logs`
+  devuelve una redirección a un zip, así que mi `grep` daba cero y parecía que el cache no estaba
+  actuando — cuando los tiempos decían lo contrario. El comando correcto es
+  `gh run view <run> --log`, que sí devuelve texto. Buena lección sobre confiar en una medición
+  antes de entender qué devuelve el comando.
+
+- **La primera corrida es más lenta que una sin cache, y está bien.** Además de construir tiene que
+  **exportar** las capas: el paso de export tardó 66,6 s. El cache se paga una vez y se cobra en
+  todas las corridas siguientes.
+
+- **Un detalle del contexto en los Pull Requests.** En un PR, `GITHUB_REF_NAME` no vale el nombre de
+  la rama sino `<numero>/merge`, porque GitHub construye una mezcla de la rama con `main` y verifica
+  **eso**. Para loguear la rama real hay que usar `github.head_ref`. No es cosmético: aclara que lo
+  que el pipeline verifica no es tu rama, es **el resultado propuesto del merge**.
+
+### Declaración de uso de IA — TP4
+
+| Qué fue asistido | Cómo lo verifiqué |
+|---|---|
+| El `ci.yml` | Lo leí línea por línea antes de commitearlo, y sobre todo **lo vi funcionar**: los dos jobs arrancando en el mismo instante, el cache reutilizando 7 capas, y el gate frenando un merge de verdad |
+| La configuración del gate por API | El `PUT` **reescribe la protección entera**, así que re-declaré lo del TP1 en el mismo JSON y después leí la protección de vuelta para confirmar que seguían los `approvals: 0` y `enforce_admins: true` |
+| Las mediciones de tiempo y cache | Salen de `gh api .../jobs` y `gh run view --log`, no de estimaciones |
+| Redacción de esta sección y del informe | Revisados contra lo que efectivamente pasó |
+
+**Un error que cometí y corregí, porque viene al caso.** Al armar la evidencia del cache, la primera
+versión de la imagen tenía líneas de log de la primera corrida que **no había leído**: estaban
+escritas a mano para ilustrar. Lo detecté al releerla, la descarté entera y la rehíce extrayendo cada
+línea de `gh run view --log` de las dos corridas reales. Una evidencia inventada es peor que no tener
+evidencia: la segunda se nota, la primera no. Lo dejo declarado porque es exactamente el tipo de cosa
+que el reglamento pide verificar de lo que produce la IA.
+
+Lo que **no** delegué: la estructura del pipeline, la decisión de construir con el Dockerfile en vez
+de compilar aparte, qué romper para demostrar el gate, y la interpretación de las mediciones.
