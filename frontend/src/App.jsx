@@ -5,6 +5,7 @@ import Productos from './pages/Productos.jsx'
 import Categorias from './pages/Categorias.jsx'
 import Movimientos from './pages/Movimientos.jsx'
 
+// Orden de las pestañas: el resumen primero, que es lo que más se mira.
 const PESTANAS = [
   ['dashboard', 'Resumen'],
   ['productos', 'Productos'],
