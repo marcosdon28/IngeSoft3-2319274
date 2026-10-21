@@ -1,0 +1,36 @@
+server {
+    listen 80;
+
+    # SPA: sirve los estáticos, con fallback a index.html.
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # El frontend llama a /api/... con ruta RELATIVA: no sabe dónde vive el
+    # backend. Quien traduce esa ruta es Vite en desarrollo y nginx acá.
+    # Como para el browser todo sale del mismo origen, NO hay CORS que configurar.
+    #
+    # La dirección del backend y el DNS llegan por VARIABLES DE ENTORNO (TP6):
+    # este archivo es una plantilla que la imagen oficial de nginx procesa al
+    # arrancar (/etc/nginx/templates/ → /etc/nginx/conf.d/), reemplazando ${...}.
+    # En compose valen los defaults del Dockerfile (el nombre del servicio y el
+    # DNS de Docker); en Render, la URL de la api de ESTE entorno y un DNS
+    # público. Así la MISMA imagen sirve en QA y en PROD: lo que cambia es el
+    # entorno, no la imagen.
+    #
+    # La dirección va en una VARIABLE de nginx y no escrita en proxy_pass: con
+    # el nombre directo nginx lo resuelve AL ARRANCAR y, si el backend todavía
+    # no existe, se niega a levantar («host not found in upstream»).
+    resolver ${DNS_RESOLVER} valid=10s ipv6=off;
+    set $backend_api ${BACKEND_URL};
+
+    location /api/ {
+        # SIN barra al final: con barra, nginx reescribiría /api/productos
+        # como /productos y la API devolvería 404 en todas las llamadas.
+        proxy_pass $backend_api;
+        proxy_ssl_server_name on;   # la api de Render es https: el TLS necesita saber a qué host va
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
