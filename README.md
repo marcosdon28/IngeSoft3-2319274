@@ -83,6 +83,18 @@ la integración y la e2e contra QA, y **producción** recibe **la misma imagen**
 Son servicios gratuitos de Render: se duermen a los 15 minutos sin tráfico y el primer pedido tarda
 hasta un minuto en despertarlos.
 
+### Un entorno más, escrito (TP8)
+
+`infra/` declara **preprod** entero: su base en Neon y sus dos servicios en Render ejecutando la imagen
+del TP7. No está vivo: nace con un comando y muere con otro, sin tocar QA ni producción.
+
+```bash
+export NEON_API_KEY=… RENDER_API_KEY=… RENDER_OWNER_ID=…   # las credenciales, nunca en el código
+cd infra && terraform init && terraform apply              # 5 recursos, ~20 s
+curl "$(terraform output -raw api_url)/health"
+terraform destroy                                          # al terminar: las horas gratuitas son del workspace
+```
+
 ### Levantarlo sin el código, desde el registry
 
 Las imágenes están publicadas en GitHub Container Registry. Con sólo el compose y el `.env` alcanza:
@@ -112,6 +124,8 @@ frontend/                React + Vite
   src/lib/reglas.js      reglas de la vista, funciones puras y testeables
   src/pages/             Resumen · Productos · Categorías · Movimientos
 scripts/datos-demo.sh    carga datos de ejemplo contra la API
+scripts/render-deploy.sh despliega un servicio de Render por su API y espera a que esté live
+infra/                   Terraform: el entorno preprod (Neon + Render con la imagen del TP7)
 ```
 
 Los services no importan FastAPI: las reglas se pueden testear sin levantar la API. El frontend llama
