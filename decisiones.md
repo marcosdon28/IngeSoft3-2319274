@@ -5,6 +5,18 @@ reescribir lo anterior.
 
 Repositorio: <https://github.com/marcosdon28/IngeSoft3-2319274>
 
+## Enlaces del TP9
+
+| Qué | Enlace |
+|---|---|
+| Dependabot: configuración, y el **PR de actualización mergeado** con el CI en verde | <https://github.com/marcosdon28/IngeSoft3-2319274/blob/main/.github/dependabot.yml> · <https://github.com/marcosdon28/IngeSoft3-2319274/pull/43> |
+| Seguridad del repositorio: alertas de Dependabot, análisis de CodeQL, secret scanning + push protection | <https://github.com/marcosdon28/IngeSoft3-2319274/security> |
+| El hallazgo de CodeQL corregido (permisos de los jobs) | <https://github.com/marcosdon28/IngeSoft3-2319274/pull/48> |
+| Sentry en el código (back y front) y el endpoint de prueba, después retirado | <https://github.com/marcosdon28/IngeSoft3-2319274/pull/42> · <https://github.com/marcosdon28/IngeSoft3-2319274/pull/62> |
+| El error visto en Sentry | <https://marcos-qo.sentry.io/issues/7805185847/> |
+| La tarjeta del tablero nacida del dato de producción | <https://github.com/users/marcosdon28/projects/2> |
+| El monitor (historial con DOWN y UP del 21/10; pausado) y los paneles de Sentry | se muestran en vivo en la defensa: no tienen URL pública |
+
 ## Enlaces del TP7
 
 | Qué | Enlace |
@@ -1473,3 +1485,186 @@ orden real en las líneas `Destroying…`. Comprobé preprod **como entorno** y 
 listando los servicios de Render y los proyectos de Neon después del ciclo. Lo que no delegué: un
 proyecto propio de Neon en vez de una base más en el de la app, derivar la cadena de conexión y la
 `BACKEND_URL` en vez de copiarlas, y la regla de destruir al terminar.
+
+---
+
+## TP9 — DevSecOps + Observabilidad + Continuous Feedback
+
+### Las tres protecciones automáticas, activas
+
+| Pieza | Cómo quedó | Qué mira, y qué no |
+|---|---|---|
+| **Dependabot** | `.github/dependabot.yml` con los tres ecosistemas —`pip` en `/backend`, `npm` en `/frontend`, `github-actions` en `/`—, semanal (PR [#42](https://github.com/marcosdon28/IngeSoft3-2319274/pull/42)). *Dependabot alerts* y *security updates* prendidos por API (`PUT …/vulnerability-alerts`, `PUT …/automated-security-fixes`) | Mira las versiones de lo que ejecuto que no escribí yo —la mayor parte del código—: avisa de fallas publicadas y propone la versión nueva. No mira **mi** código, ni si la actualización rompe algo: eso lo decide mi pipeline sobre su PR |
+| **CodeQL** | Configuración por defecto, por API (`PATCH …/code-scanning/default-setup`, `state: configured`); detecta Python, JavaScript y los workflows de Actions, y corre en cada PR y push | Lee **mi** código sin ejecutarlo: patrones de inyección, secretos escritos, permisos de workflows. No sabe qué debe hacer el código (eso lo custodian los tests) ni ve lo que pasa en producción |
+| **Push protection** | Ya venía activa (repo público); verificada en *Settings → Advanced Security* y por API (`secret_scanning_push_protection: enabled`) | Frena un `push` con un secreto de formato conocido (tokens de GitHub, claves de nubes…) **antes** de que llegue al repo. No detecta una contraseña inventada ni un secreto en un formato que no reconoce: ese hueco lo cubren el `.gitignore`, los secrets de los environments y la revisión del PR |
+
+### Producción observada: el monitor externo
+
+Monitor HTTP de **UptimeRobot** sobre `https://inventario-api-prod-7xrj.onrender.com/health`, cada
+5 minutos, alerta por email, creado por su API. **Externo** a propósito: si el aviso viviera adentro
+de la app o de Render, se caería junto con lo que vigila. **Dos cosas de letra chica que condicionan
+todo:**
+
+- El plan gratuito pregunta con **HEAD**, y FastAPI no deriva HEAD de un `@app.get`: PROD contestaba
+  `405` y el monitor habría marcado *Down* con la app viva (medido con `curl -I` antes de prender el
+  monitor). `/health` pasó a `@app.api_route(methods=["GET", "HEAD"])` (#42), y el monitor quedó
+  **pausado** hasta que ese cambio llegó a producción.
+- Un monitor que pega cada 5 minutos **mantiene despierto** el servicio: 720–744 de las 750 horas
+  mensuales del workspace en un solo servicio, y si se agotan Render suspende todo, producción
+  incluida. Por eso el monitor se prende para el ejercicio y **se pausa al terminar**; el historial
+  no se pierde. Monitorea sólo PROD.
+
+**La caída provocada, medida** (21/10, horas UTC, del historial del monitor y de la API de Render):
+
+| Momento | Hora | Qué pasó |
+|---|---|---|
+| Monitor reanudado; primer chequeo OK | 18:28:33 | *started* / *up* en el historial |
+| **Suspendo** la api de PROD (`POST /services/{id}/suspend`, Render API) | **18:29:05** | PROD deja de contestar |
+| El monitor registra **DOWN** | **18:34:48** | **5 min 43 s** después de suspender — un intervalo de 5 min más el chequeo que confirmó |
+| **Reanudo** la api (`/resume`) | 18:35:11 | Render la vuelve a levantar desde la imagen |
+| `/health` vuelve a contestar | 18:36:04 | 53 s después del resume (cold start de la imagen) |
+| El monitor registra **UP** | **18:39:54** | 4 min 43 s después de reanudar: el siguiente chequeo del ciclo de 5 min |
+| Monitor **pausado** | 18:40:08 | *paused* en el historial, que no se pierde |
+
+**Tiempo de detección: ~6 minutos**, y es el techo del plan gratuito (chequeo cada 5 minutos).
+Sin el monitor me habría enterado por un usuario —el sábado del escenario, cuarenta minutos
+después, o nunca—. El email de DOWN y el de UP llegaron al contacto de la cuenta. El historial con
+los dos eventos vive en el panel de UptimeRobot (monitor `inventario-api-prod /health`), que es lo
+que se abre en la defensa: no se puede enlazar, se muestra. Si para la defensa pasaron más de 30
+días, se repite: prender, suspender, reanudar, pausar.
+
+**Qué hace que una alerta sirva.** Que llegue a alguien que puede actuar (el mail del dueño, no un
+canal que nadie mira), que no grite por nada (por eso el `405` de HEAD se arregló **antes** de
+prenderlo: un monitor que marca *Down* con la app viva entrena a ignorarlo, como un test flaky) y
+que diga qué mirar (la URL y la hora). Y lo que el monitor **no** ve: que la app conteste 200 y esté
+rota (eso es Sentry, y la e2e), o que una sola operación tarde diez segundos.
+
+### La aplicación observada: Sentry en el back y en el front
+
+Dos proyectos en Sentry (`inventario-backend`, FastAPI; `inventario-frontend`, React), creados por
+API. En el backend, `sentry_sdk.init` con `dsn=os.getenv("SENTRY_DSN", "")`: el DSN **no está en el
+código**, está como variable **sólo en el servicio de producción** (cargada por la API de Render);
+en local, en los tests y en QA la variable no existe y la librería queda apagada. `release` = el
+commit horneado en la imagen (`APP_COMMIT`): cada error dice qué versión lo produjo.
+`traces_sample_rate=1.0`: se mide cada pedido, que para una app de cursada sobra. En el frontend,
+`Sentry.init` en `main.jsx` **con el DSN escrito en el código**, y no es un descuido: el DSN de un
+front sólo sirve para **enviar** eventos, no para leer nada, y viaja en el JavaScript que baja
+cualquier navegador; no es una clave de API, y push protection no lo frena (bien).
+`environment = window.location.hostname` distingue QA, producción y localhost.
+
+**Lo que vi en Sentry después de usar producción un rato** (listar, crear una categoría y un
+producto, registrar una salida válida y una inválida, y llamar dos veces al endpoint de prueba):
+
+| Lo que quería saber | Dónde | Qué vi |
+|---|---|---|
+| **Qué falla** | *Issues* de `inventario-backend` | **INVENTARIO-BACKEND-1** · `RuntimeError: Falla de prueba del TP9…` · 2 eventos, con el archivo y la línea (`app/main.py`, el endpoint `/api/falla`) y el `release` = commit de la imagen. <https://marcos-qo.sentry.io/issues/7805185847/> |
+| **Qué se usa** | tabla de transacciones (pedidos por operación, última hora) | `/api/movimientos` y `/api/productos`, **10 pedidos cada una**; `/api/categorias`, 4; `/api/falla`, 2 |
+| **Qué tarda** | la misma tabla, columna p95 | **`/api/productos`: p95 594 ms** (p50 287) — la más lenta; `/api/movimientos` 364 ms; `/api/categorias` 324 ms; `/api/falla` 307 ms |
+
+Del lado del **front** (`inventario-frontend`, *Frontend Overview*), después de que un navegador
+real usara la app de producción (la suite e2e del TP7 apuntada a PROD): **4 pageloads, p95 3,6 s**
+— el primer cargado despierta al front y a la api dormidos; es el cold start del plan gratuito
+visto desde el usuario, y es un dato que ningún `curl` me daba.
+
+*P50* es lo que tarda la mitad de los pedidos; *P95*, lo que tardan casi todos. Los ~280 ms de
+p50 que comparten todas son el viaje hasta Neon (Oregon → us-east-1) más el despertar de su
+cómputo; lo que distingue a `/api/productos` es **lo que hace de más**: `producto_service.listar`
+arma el dict con `p.categoria.nombre` por cada producto, y la relación se carga perezosa — **una
+consulta por producto (N+1)**. Con cuatro productos ya se nota; con cuatrocientos sería un
+problema. Nadie lo habría visto sin medirlo: los tests pasan, el smoke pasa, la e2e pasa.
+
+**La tarjeta en el tablero, nacida de ese dato** (el círculo del feedback, clase 1: lo que pasa en
+producción decide qué se hace después): *«Listar productos es la operación más lenta de PROD: p95
+594 ms (Sentry, 21/10)»*, con el número adentro, la causa probable y el criterio de aceptación
+(p95 de productos por debajo del de movimientos con los mismos datos), en
+<https://github.com/users/marcosdon28/projects/2>.
+
+**Lo que el monitor no puede decirme y Sentry sí**: el monitor contesta «¿está viva?»; Sentry
+contesta qué falla (con la línea), qué tarda y qué se usa — y lo cuenta **la aplicación**, no
+alguien de afuera. Y al revés: si la app está caída, Sentry no recibe nada; el que avisa es el
+monitor.
+
+### El PR de Dependabot que mergeé, y por qué me animé
+
+Dependabot abrió **cuatro** PRs a los minutos de entrar el `dependabot.yml` a `main` (todos del
+frontend: las alertas de seguridad estaban ahí). Elegí
+[#43](https://github.com/marcosdon28/IngeSoft3-2319274/pull/43): **`source-map-js` 1.2.1 → 1.2.2**
+en `frontend/package-lock.json`.
+
+- **Qué actualiza**: un **patch** (SemVer: sólo arreglos, misma API). Es una dependencia
+  **transitiva de desarrollo** (la arrastran Vite y PostCSS para los source maps del build): no
+  viaja en la imagen de nginx, que sólo lleva el `dist/`.
+- **Qué arregla**: la alerta #11, **high**, GHSA-68fv-2mgg-jv7q — *event-loop denial of service*
+  al procesar offsets de secciones de un source map. En mi caso el riesgo real es bajo (sólo
+  corre en el build, con source maps que genero yo), pero un patch sin cambios de API no tiene
+  costo y cierra una alerta alta.
+- **Por qué me animé**: el diff son tres líneas del lockfile (versión, URL, hash), y el
+  **pipeline en verde sobre ese PR** —build de las dos imágenes, 37 tests del front con su
+  umbral, 38 del back— es todo el semestre diciéndome «podés». Ésa es la pieza que lo permite: sin
+  el TP5 estaría mergeando a ciegas.
+- **Los que no mergeé todavía**: #44, #45 y #47 suben **vitest a 4.x** (major) junto con
+  `@vitest/coverage-v8` y `tinypool`. Un major puede cambiar cómo se mide la cobertura (el §3.5 del
+  TP5 lo documenta: desde vitest 4 las ramas de una función sin tests sí cuentan), así que ése no
+  entra por reflejo: se prueba aparte, mirando el número del umbral antes y después.
+
+### CodeQL: lo que encontró, y qué hice
+
+El primer análisis (Python, JavaScript/TypeScript y Actions) devolvió **cero** hallazgos sobre mi
+código y **cuatro** sobre el workflow: `actions/missing-workflow-permissions` (medium), uno por
+cada job que no declaraba `permissions` —`deploy-qa`, `integracion`, `e2e`, `deploy-prod`— (los dos
+de build ya los tenían desde el TP6). Es exactamente el hallazgo que la guía anuncia. **Análisis**:
+categoría de permisos excesivos / mínimo privilegio; un job sin `permissions` corre con los permisos
+por defecto del repositorio, que en un repo personal nuevo son de lectura — explotable en mi caso
+sólo en teoría (soy el único que mergea), pero el principio es el del TP6: un job no debería poder
+escribir donde no necesita. **Decisión**: arreglarlo, no descartarlo —`contents: read` en los cuatro
+(PR [#48](https://github.com/marcosdon28/IngeSoft3-2319274/pull/48))—, y comprobar que la cadena
+siguiera en verde: los secrets y las variables de los environments no dependen de `permissions`, así
+que los deploys no cambian. Lo que CodeQL **no** puede decirme: si el descuento tenía que ser 10 % y
+no 15 % — eso lo custodian los tests.
+
+### Lo que Dependabot abrió, y lo que no entró
+
+Además de los cuatro PRs de seguridad, la actualización semanal abrió **trece** PRs de versión en
+la primera corrida: majors de React 19, Vite 8, vitest 5, FastAPI 0.146, SQLAlchemy 2.1, pytest 9,
+y las actions a `v7`. Mergeé uno —#43— y dejé el resto abiertos **a propósito**: un major se prueba
+aparte, mirando qué cambia (en vitest, cómo cuenta las ramas el umbral; en SQLAlchemy 2.1, la API
+de sesión; en React 19, el `StrictMode` y los tipos). Dependabot **propone**; el criterio de qué
+entra y cuándo sigue siendo mío, con el pipeline como juez de si rompe algo.
+
+### Problemas encontrados y cómo los resolví
+
+- **El plan gratuito de UptimeRobot pregunta con HEAD** y FastAPI contestaba `405`: lo comprobé
+  con `curl -I` antes de prender el monitor, y el primer monitor que creé quedó pausado hasta que
+  `/health` aceptó HEAD en producción. Sin esa comprobación, el historial habría arrancado con un
+  *Down* falso.
+- **La instalación de Sentry «por agente»** (`npx @sentry/agent-plugin install …`) instaló un plugin
+  que trabaja por MCP y necesita reiniciar la sesión y autorizar en el navegador; los proyectos no
+  existían. Los creé por la API de Sentry con un token de alcance `project:write`, y leí los DSN de
+  ahí. El token quedó fuera del repo; el DSN del back en el servicio de producción; el del front en
+  el código, como corresponde.
+- **El DSN del back se cargó por la API de Render** (`PUT /services/{id}/env-vars/SENTRY_DSN`), lo
+  que disparó un redeploy de la misma imagen fuera del pipeline (`envUpdated`). Es un cambio de
+  configuración, no de código, y queda declarado.
+- **`gh run list --commit <sha>` devuelve también las corridas de CodeQL y de Dependabot** del mismo
+  commit: un script que esperaba «la corrida» esperó la equivocada y encontró «no pending
+  deployment requests». Se filtra con `--workflow CI`.
+- **Una llamada a Sentry devolvía la tabla de transacciones vacía**: el dataset viejo
+  (`transactions`) ya no se llena; con `dataset=spans` y `is_transaction:true` salen los números.
+
+### Declaración de uso de IA — TP9
+
+Usé **Claude Code (Claude Fable 5.1)**, que también operó: prendió las protecciones por API, creó
+el monitor, provocó la caída (suspend/resume de la api de PROD por la API de Render), creó los
+proyectos de Sentry y la tarjeta del tablero, y mergeó el PR de Dependabot después de que el CI
+diera verde.
+
+| Qué fue asistido | Cómo lo verifiqué |
+|---|---|
+| `dependabot.yml`, el cambio de `/health` a GET+HEAD, el `sentry_sdk.init` y el `Sentry.init` | Cada pieza **funcionando desde afuera**: Dependabot abrió sus PRs a los minutos; `curl -I` de PROD pasó de `405` a `200`; el error de `/api/falla` apareció en *Issues* con su línea y su release; la tabla de transacciones muestra mis pedidos |
+| La caída y el monitor | Las horas de la tabla salen del historial del monitor (API `getMonitors` con `logs=1`) y de la hora del `suspend`/`resume`; el monitor quedó **pausado**, verificado por API (`status 0`) |
+| El PR de Dependabot que mergeé | Lo leí (tres líneas del lockfile) y leí la alerta (GHSA-68fv-2mgg-jv7q, dependencia de desarrollo) antes de mergearlo con el CI verde |
+| El análisis del hallazgo de CodeQL | Lo contrasté con lo que el TP6 ya había hecho en los jobs de build, y con la cadena verde después del cambio |
+| Redacción de esta sección | Revisada contra lo que pasó |
+
+Lo que **no** delegué: qué PR de Dependabot mergear y cuáles dejar, qué hacer con el hallazgo de
+CodeQL, que el monitor mire sólo PROD y se pause, y qué dato de Sentry merecía una tarjeta.
