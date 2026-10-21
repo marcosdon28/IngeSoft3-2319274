@@ -1,0 +1,19 @@
+# TP9 — Las dependencias son la mayor parte del código que ejecuto, y nadie las
+# revisa. Dependabot abre un PR por cada actualización; mi pipeline (tests,
+# umbral, e2e) decide si se puede mergear con confianza.
+version: 2
+updates:
+  - package-ecosystem: "pip"               # backend: requirements.txt y requirements-dev.txt
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"               # frontend: package.json / package-lock.json
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"    # las actions del workflow también son dependencias
+    directory: "/"
+    schedule:
+      interval: "weekly"
