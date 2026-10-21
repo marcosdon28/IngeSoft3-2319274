@@ -48,6 +48,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
 # El código va último: es lo que más cambia, así invalida la menor cantidad de capas.
 COPY app ./app
 
+# El commit que produjo la imagen, horneado adentro: lo pasa el pipeline con
+# --build-arg. En un build local queda "local". /health lo devuelve.
+ARG APP_COMMIT=local
+ENV APP_COMMIT=$APP_COMMIT
+
 # Usuario sin privilegios: si alguien escapa del proceso, no es root.
 RUN useradd --create-home --uid 1001 appuser
 USER appuser
