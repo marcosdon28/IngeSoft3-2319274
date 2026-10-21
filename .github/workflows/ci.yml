@@ -180,6 +180,8 @@ jobs:
   # ---- TP6: la promoción arranca donde termina la verificación ----
   deploy-qa:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read      # CodeQL (TP9): sin esto el job corre con los permisos por defecto del repo; sólo baja el código
     needs: [build-backend, build-frontend]     # sin CI verde no hay deploy
     if: github.ref == 'refs/heads/main'        # los PRs verifican; sólo main despliega
     environment: qa                            # hereda sus secrets y variables, y suma al historial
@@ -235,6 +237,8 @@ jobs:
   # real (e2e). PROD sólo si las dos pasan. ----
   integracion:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read      # CodeQL (TP9): sin esto el job corre con los permisos por defecto del repo; sólo baja el código
     needs: deploy-qa                       # QA ya está ejecutando la imagen de ESTA corrida
     timeout-minutes: 15
     steps:
@@ -267,6 +271,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read      # CodeQL (TP9): sin esto el job corre con los permisos por defecto del repo; sólo baja el código
     needs: integracion                     # si la api está rota, no gastamos un browser en confirmarlo
     timeout-minutes: 20                    # si algo se cuelga, el job muere en vez de esperar horas
     steps:
@@ -303,6 +309,8 @@ jobs:
   # ---- TP6: el gate humano. PROD sólo después de QA vivo y con aprobación ----
   deploy-prod:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read      # CodeQL (TP9): sin esto el job corre con los permisos por defecto del repo; sólo baja el código
     needs: e2e                                  # EL gate: sin integración y e2e verdes, ni siquiera se pide aprobación
     # No repite el `if` de la rama: depende de deploy-qa, que sí lo tiene; en un
     # PR ninguno de los dos corre. La condición se hereda por la cadena.
