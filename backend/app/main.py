@@ -28,10 +28,15 @@ def crear_schema() -> None:
     Base.metadata.create_all(bind=engine)
 
 
-# El commit con el que se construyó la imagen: lo pone el pipeline como argumento
-# de build (ARG APP_COMMIT en el Dockerfile). Nunca va como variable del servicio:
-# si el entorno la pisara, /health dejaría de decir qué imagen corre de verdad.
-APP_COMMIT = os.getenv("APP_COMMIT", "desconocido")
+# El commit que corre, con tres orígenes posibles y en este orden:
+#   1. APP_COMMIT horneado en la imagen (ARG del Dockerfile, lo pasa el pipeline
+#      con --build-arg): es la fuente de verdad cuando el entorno EJECUTA la
+#      imagen del registry (TP7). Nunca va como variable del servicio: si el
+#      entorno la pisara, /health dejaría de decir qué imagen corre de verdad.
+#   2. RENDER_GIT_COMMIT, que Render inyecta cuando RECONSTRUYE desde el repo
+#      (TP6): ahí mi imagen no es la que corre, y el ARG no llega.
+#   3. "local": un build en la máquina, sin pipeline.
+APP_COMMIT = os.getenv("APP_COMMIT") or os.getenv("RENDER_GIT_COMMIT") or "local"
 
 
 @app.get("/health", tags=["salud"])
