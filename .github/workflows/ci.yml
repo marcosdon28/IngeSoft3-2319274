@@ -95,6 +95,7 @@ jobs:
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           # el nombre va escrito a mano y en minúsculas: github.repository tiene mayúsculas
           tags: ghcr.io/marcosdon28/inventario-backend:sha-${{ github.sha }}
+          build-args: APP_COMMIT=${{ github.sha }}   # /health lo devuelve: el smoke lo compara
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -215,7 +216,12 @@ jobs:
             if curl -fsS --max-time 10 "$URL_API/health" \
                && curl -fsS --max-time 10 "$URL_API/api/productos" > /dev/null \
                && curl -fsS --max-time 10 "$URL_FRONT/" > /dev/null; then
-              echo "✅ QA responde (API + BD + front) — vuelta $i"; exit 0
+              # Responde. Y ¿corre ESTE commit? Lo dice /health (ARG APP_COMMIT de la imagen).
+              CORRE=$(curl -fsS --max-time 10 "$URL_API/health" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("commit"))')
+              if [ "$CORRE" = "$GITHUB_SHA" ]; then
+                echo "✅ QA responde (API + BD + front) y corre $CORRE — vuelta $i"; exit 0
+              fi
+              echo "   QA responde pero corre $CORRE, no $GITHUB_SHA: espero…"
             fi
             sleep 20
           done
@@ -256,7 +262,12 @@ jobs:
             if curl -fsS --max-time 10 "$URL_API/health" \
                && curl -fsS --max-time 10 "$URL_API/api/productos" > /dev/null \
                && curl -fsS --max-time 10 "$URL_FRONT/" > /dev/null; then
-              echo "✅ PROD responde (API + BD + front) — vuelta $i"; exit 0
+              # Responde. Y ¿corre ESTE commit? Lo dice /health (ARG APP_COMMIT de la imagen).
+              CORRE=$(curl -fsS --max-time 10 "$URL_API/health" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("commit"))')
+              if [ "$CORRE" = "$GITHUB_SHA" ]; then
+                echo "✅ PROD responde (API + BD + front) y corre $CORRE — vuelta $i"; exit 0
+              fi
+              echo "   PROD responde pero corre $CORRE, no $GITHUB_SHA: espero…"
             fi
             sleep 20
           done
