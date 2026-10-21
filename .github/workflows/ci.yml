@@ -11,6 +11,9 @@ jobs:
   # No comparten filesystem: son dos máquinas distintas.
   build-backend:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read      # sin esto el checkout no puede leer el código
+      packages: write     # publicar en ghcr.io con el GITHUB_TOKEN de la corrida
     steps:
       - name: Qué estamos verificando
         env:
@@ -24,17 +27,6 @@ jobs:
 
       - name: Preparar el constructor que sabe cachear
         uses: docker/setup-buildx-action@v4
-
-      - name: Construir la imagen del backend
-        # El pipeline NO compila por su cuenta: usa el Dockerfile del TP2, que es
-        # la misma definición de build que después se despliega.
-        uses: docker/build-push-action@v7
-        with:
-          context: ./backend
-          push: false                    # todavía no se publica: eso es el TP6
-          tags: inventario-backend:ci
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
 
       # ---- TP5: los tests corren ADENTRO del contenedor, en la etapa `test` ----
       - name: Construir la etapa de tests del backend
@@ -81,8 +73,36 @@ jobs:
             TestResults/coverage.xml
             TestResults/tests.xml
 
+      # ---- TP6: el artefacto. ÚLTIMO paso a propósito: si los tests o el umbral
+      # fallan, el job muere antes y esto nunca corre. La condición no está
+      # escrita en un `if`: está en el ORDEN de los pasos. ----
+      - name: Entrar al registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # el token de la corrida: vive lo que dura el job
+
+      - name: Construir y publicar la imagen del backend
+        # El pipeline NO compila por su cuenta: usa el Dockerfile del TP2, que es
+        # la misma definición de build que después se despliega. Publica SÓLO en
+        # el push a main (las dos condiciones, no una): los PRs construyen y
+        # verifican, pero no suben nada. Etiqueta = el commit que la produjo.
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # el nombre va escrito a mano y en minúsculas: github.repository tiene mayúsculas
+          tags: ghcr.io/marcosdon28/inventario-backend:sha-${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
   build-frontend:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read      # sin esto el checkout no puede leer el código
+      packages: write     # publicar en ghcr.io con el GITHUB_TOKEN de la corrida
     steps:
       - name: Qué estamos verificando
         env:
@@ -94,17 +114,6 @@ jobs:
 
       - name: Preparar el constructor que sabe cachear
         uses: docker/setup-buildx-action@v4
-
-      - name: Construir la imagen del frontend
-        uses: docker/build-push-action@v7
-        with:
-          context: ./frontend
-          push: false
-          tags: inventario-frontend:ci
-          # scope distinto por job: sin esto los dos comparten estante y se pisan,
-          # y cuál queda cacheado cambia según cuál termine último.
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
 
       # ---- TP5: misma receta que el backend ----
       - name: Construir la etapa de tests del frontend
@@ -146,3 +155,23 @@ jobs:
         with:
           name: coverage-frontend
           path: frontend-coverage
+
+      # ---- TP6: el artefacto, último paso (ver el comentario del backend) ----
+      - name: Entrar al registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar la imagen del frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/marcosdon28/inventario-frontend:sha-${{ github.sha }}
+          # scope distinto por job: sin esto los dos comparten estante y se pisan,
+          # y cuál queda cacheado cambia según cuál termine último.
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
