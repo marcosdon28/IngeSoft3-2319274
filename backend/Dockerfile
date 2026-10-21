@@ -49,8 +49,8 @@ ENV PATH="/opt/venv/bin:$PATH" \
 COPY app ./app
 
 # El commit que produjo la imagen, horneado adentro: lo pasa el pipeline con
-# --build-arg. En un build local queda "local". /health lo devuelve.
-ARG APP_COMMIT=local
+# --build-arg. Sin él queda vacío y /health usa el que da el entorno, o "local".
+ARG APP_COMMIT=
 ENV APP_COMMIT=$APP_COMMIT
 
 # Usuario sin privilegios: si alguien escapa del proceso, no es root.
