@@ -6,10 +6,22 @@ testear las reglas sin levantar la API (TP5).
 """
 import os
 
+import sentry_sdk
 from fastapi import FastAPI
 
 from app.database import Base, engine
 from app.routers import categorias, movimientos, productos
+
+# Observabilidad de la aplicación (TP9): qué falla, qué tarda y qué se usa.
+# El DSN llega por el entorno y SÓLO está cargado en el servicio de producción:
+# sin la variable (local, tests, QA) la librería queda apagada y la app anda igual.
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN", ""),
+    environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+    release=os.getenv("APP_COMMIT") or None,   # el commit horneado en la imagen: cada error dice qué versión lo produjo
+    traces_sample_rate=1.0,                    # medir todos los pedidos (para una app de cursada sobra)
+    send_default_pii=False,
+)
 
 app = FastAPI(
     title="Inventario — IngSoft3 UCC 2026",
@@ -50,6 +62,13 @@ def health():
     anterior que Render sigue sirviendo mientras construye (TP6/TP7).
     """
     return {"status": "ok", "commit": APP_COMMIT}
+
+
+# ⚠️ TEMPORAL (TP9 §3.5): un endpoint que falla a propósito, para ver un error
+# llegar a Sentry desde producción. Se saca por PR al terminar el práctico.
+@app.get("/api/falla", tags=["salud"], include_in_schema=False)
+def falla():
+    raise RuntimeError("Falla de prueba del TP9: este error tiene que aparecer en Sentry")
 
 
 app.include_router(categorias.router)
