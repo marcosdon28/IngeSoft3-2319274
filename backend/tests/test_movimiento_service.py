@@ -84,3 +84,48 @@ def test_una_entrada_valida_persiste_un_movimiento_una_sola_vez(db, producto):
     assert guardado.descuento_aplicado == 0.0     # una entrada nunca lleva descuento
     db.commit.assert_called_once()
     assert producto.stock == 15
+
+
+def _con_movimiento(db, producto, tipo, cantidad):
+    """El doble contesta el movimiento y después el producto, en ese orden (dos db.get)."""
+    movimiento = Movimiento(id=7, producto_id=producto.id, tipo=tipo, cantidad=cantidad,
+                            total=0, descuento_aplicado=0)
+    db.get.side_effect = [movimiento, producto]
+    return movimiento
+
+
+def test_anular_una_salida_devuelve_las_unidades_al_stock(db, producto):
+    # Arrange: stock 10, una salida de 4 registrada
+    movimiento = _con_movimiento(db, producto, TipoMovimiento.SALIDA, 4)
+
+    # Act
+    movimiento_service.anular(db, 7)
+
+    # Assert: el stock vuelve, el movimiento se borra, un solo commit
+    assert producto.stock == 14
+    db.delete.assert_called_once_with(movimiento)
+    db.commit.assert_called_once()
+
+
+def test_anular_una_entrada_resta_lo_que_habia_sumado(db, producto):
+    _con_movimiento(db, producto, TipoMovimiento.ENTRADA, 4)
+
+    movimiento_service.anular(db, 7)
+
+    assert producto.stock == 6
+
+
+def test_no_se_anula_una_entrada_cuyas_unidades_ya_salieron(db, producto):
+    # Arrange: stock 10, pero la entrada fue de 25: deshacerla dejaría -15 (regla 1)
+    _con_movimiento(db, producto, TipoMovimiento.ENTRADA, 25)
+
+    with pytest.raises(ReglaDeNegocioError, match="quedarían -15"):
+        movimiento_service.anular(db, 7)
+    db.delete.assert_not_called()
+    assert producto.stock == 10
+
+
+def test_anular_un_movimiento_inexistente_devuelve_no_encontrado(db):
+    db.get.return_value = None
+    with pytest.raises(NoEncontradoError):
+        movimiento_service.anular(db, 99)

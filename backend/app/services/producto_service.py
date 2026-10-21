@@ -2,7 +2,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Categoria, Producto
+from app.models import Categoria, Movimiento, Producto
 from app.services.errores import NoEncontradoError, ReglaDeNegocioError
 
 
@@ -81,3 +81,26 @@ def actualizar(db: Session, producto_id: int, datos) -> dict:
 
     db.commit()
     return _a_dict(producto)
+
+
+def eliminar(db: Session, producto_id: int) -> None:
+    """REGLA 8 — Un producto con movimientos no se elimina: su historial es un
+    registro de unidades físicas que entraron y salieron, y borrarlo lo dejaría
+    sin explicación. Se da de baja (activo=False), que es lo que lo saca de uso.
+    Sin movimientos, se puede borrar: no deja ningún agujero en el historial.
+    """
+    producto = db.get(Producto, producto_id)
+    if producto is None:
+        raise NoEncontradoError("El producto no existe.")
+
+    cantidad = db.scalar(
+        select(func.count(Movimiento.id)).where(Movimiento.producto_id == producto_id)
+    )
+    if cantidad:
+        raise ReglaDeNegocioError(
+            f"No se puede eliminar '{producto.nombre}': tiene {cantidad} movimiento(s). "
+            f"Dalo de baja en lugar de borrarlo."
+        )
+
+    db.delete(producto)
+    db.commit()

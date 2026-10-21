@@ -51,6 +51,7 @@ export default function Categorias({ categorias, recargar, setError }) {
                       {/* Regla 3: con productos asociados no se puede borrar.
                           El botón se deshabilita acá, y el backend lo rechaza igual. */}
                       <button className="link" onClick={() => eliminar(c.id)}
+                              aria-label={`Eliminar ${c.nombre}`}
                               disabled={c.cantidad_productos > 0}
                               title={c.cantidad_productos > 0
                                 ? 'Tiene productos asociados: no se puede eliminar'

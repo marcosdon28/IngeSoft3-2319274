@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
@@ -10,6 +10,9 @@ export default defineConfig({
     proxy: { '/api': 'http://localhost:8000' },
   },
   test: {
+    // vitest NO toca los specs de Playwright (integración y e2e viven en e2e/):
+    // sin esto matchea *.spec.js y explota con un error críptico.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
     coverage: {
       provider: 'v8',
       // json-summary deja coverage-summary.json: es lo que el pipeline lee para el resumen.

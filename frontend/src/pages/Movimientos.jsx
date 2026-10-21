@@ -60,7 +60,7 @@ export default function Movimientos({ productos, movimientos, recargar, setError
                 <button className="accion" type="submit" disabled={motivo !== null}>Registrar</button>
               </form>
 
-              {motivo && <p className="aviso" style={{ marginTop: 12 }}>{motivo}</p>}
+              {motivo && <p className="aviso" role="status" style={{ marginTop: 12 }}>{motivo}</p>}
 
               {!motivo && calculo && tipo === 'SALIDA' && (
                 <p style={{ marginTop: 12, fontSize: 14 }}>
