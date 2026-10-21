@@ -64,13 +64,6 @@ def health():
     return {"status": "ok", "commit": APP_COMMIT}
 
 
-# ⚠️ TEMPORAL (TP9 §3.5): un endpoint que falla a propósito, para ver un error
-# llegar a Sentry desde producción. Se saca por PR al terminar el práctico.
-@app.get("/api/falla", tags=["salud"], include_in_schema=False)
-def falla():
-    raise RuntimeError("Falla de prueba del TP9: este error tiene que aparecer en Sentry")
-
-
 app.include_router(categorias.router)
 app.include_router(productos.router)
 app.include_router(movimientos.router)
