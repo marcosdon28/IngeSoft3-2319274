@@ -1,4 +1,4 @@
-import { estaBajoStock, formatearPrecio } from '../lib/reglas.js'
+import { estaBajoStock, formatearPrecio, ordenarPorPrioridad } from '../lib/reglas.js'
 
 export default function Dashboard({ productos, categorias, movimientos }) {
   const bajos = productos.filter(estaBajoStock)
@@ -34,15 +34,16 @@ export default function Dashboard({ productos, categorias, movimientos }) {
           : (
             <table>
               <thead>
-                <tr><th>SKU</th><th>Producto</th><th className="num">Stock</th><th className="num">Mínimo</th></tr>
+                <tr><th>SKU</th><th>Producto</th><th className="num">Stock</th><th className="num">Mínimo</th><th>Prioridad</th></tr>
               </thead>
               <tbody>
-                {bajos.map((p) => (
+                {ordenarPorPrioridad(bajos, movimientos).map(({ producto: p, prioridad }) => (
                   <tr key={p.id}>
                     <td>{p.sku}</td>
                     <td>{p.nombre}</td>
                     <td className="num"><span className="chip bajo">{p.stock}</span></td>
                     <td className="num">{p.stock_minimo}</td>
+                    <td>{prioridad}</td>
                   </tr>
                 ))}
               </tbody>

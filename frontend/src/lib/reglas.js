@@ -49,3 +49,44 @@ export function formatearPrecio(valor) {
     style: 'currency', currency: 'ARS', minimumFractionDigits: 2,
   }).format(Number(valor) || 0)
 }
+
+/**
+ * Prioridad de reposición de un producto en bajo stock, para ordenar la lista
+ * del tablero. Mira cuánto falta para el mínimo y cuántas unidades salieron
+ * en los últimos movimientos: un producto que se vende y ya no tiene stock es
+ * más urgente que uno quieto.
+ *   - 'sin-stock'     : no queda nada
+ *   - 'urgente'       : menos de la mitad del mínimo y con salidas recientes
+ *   - 'pronto'        : menos de la mitad del mínimo sin salidas, o en el mínimo con salidas
+ *   - 'puede-esperar' : en o por debajo del mínimo, pero nadie lo está pidiendo
+ *   - 'normal'        : por encima del mínimo (no hace falta reponer)
+ */
+export function prioridadDeReposicion(producto, movimientos = []) {
+  if (!producto) return 'normal'
+  if (producto.stock <= 0) return 'sin-stock'
+  if (!estaBajoStock(producto)) return 'normal'
+
+  const salidas = movimientos
+    .filter((m) => m.producto_id === producto.id && m.tipo === 'SALIDA')
+    .reduce((acc, m) => acc + m.cantidad, 0)
+  const mitadDelMinimo = producto.stock_minimo / 2
+
+  if (producto.stock < mitadDelMinimo) return salidas > 0 ? 'urgente' : 'pronto'
+  return salidas > 0 ? 'pronto' : 'puede-esperar'
+}
+
+const ORDEN_PRIORIDAD = ['sin-stock', 'urgente', 'pronto', 'puede-esperar', 'normal']
+
+/**
+ * Ordena los productos por reponer: primero los más urgentes y, a igual
+ * prioridad, por nombre. Devuelve pares { producto, prioridad } listos para
+ * la tabla del tablero.
+ */
+export function ordenarPorPrioridad(productos, movimientos = []) {
+  return productos
+    .map((producto) => ({ producto, prioridad: prioridadDeReposicion(producto, movimientos) }))
+    .sort((a, b) => (
+      ORDEN_PRIORIDAD.indexOf(a.prioridad) - ORDEN_PRIORIDAD.indexOf(b.prioridad)
+      || a.producto.nombre.localeCompare(b.producto.nombre)
+    ))
+}
