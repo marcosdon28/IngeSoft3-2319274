@@ -104,3 +104,29 @@ def registrar(db: Session, datos) -> dict:
         "descuento_aplicado": float(movimiento.descuento_aplicado),
         "fecha": movimiento.fecha,
     }
+
+
+def anular(db: Session, movimiento_id: int) -> None:
+    """Anula un movimiento: lo borra y devuelve el stock al producto.
+
+    Una entrada anulada resta lo que había sumado; una salida anulada devuelve
+    las unidades al depósito. Si al deshacer una entrada el stock quedara
+    negativo (porque esas unidades ya salieron), la regla 1 manda: no se anula.
+    """
+    movimiento = db.get(Movimiento, movimiento_id)
+    if movimiento is None:
+        raise NoEncontradoError("El movimiento no existe.")
+
+    producto = db.get(Producto, movimiento.producto_id)
+    if movimiento.tipo == TipoMovimiento.ENTRADA:
+        if producto.stock - movimiento.cantidad < 0:
+            raise ReglaDeNegocioError(
+                f"No se puede anular la entrada: quedarían {producto.stock - movimiento.cantidad} "
+                f"unidades de '{producto.nombre}'."
+            )
+        producto.stock -= movimiento.cantidad
+    else:
+        producto.stock += movimiento.cantidad
+
+    db.delete(movimiento)
+    db.commit()
