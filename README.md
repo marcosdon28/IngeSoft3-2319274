@@ -44,6 +44,19 @@ Para ver la app con contenido: `./scripts/datos-demo.sh`
 
 Para apagar: `docker compose down` (los datos quedan) · `docker compose down -v` (los datos se borran).
 
+### Correr los tests (TP5)
+
+Los tests viven en la etapa `test` de cada Dockerfile: es la **misma receta** que corre el pipeline.
+
+```bash
+docker build --target test -t backend-test backend  && docker run --rm backend-test
+docker build --target test -t frontend-test frontend && docker run --rm frontend-test
+```
+
+Backend: pytest con cobertura de línea y rama, umbral 85 % (combinada). Frontend: vitest con
+cobertura v8, umbral 90 % de líneas y 85 % de ramas. Por debajo del umbral, el comando falla — y con
+él, el check del Pull Request.
+
 ### Levantarlo sin el código, desde el registry
 
 Las imágenes están publicadas en GitHub Container Registry. Con sólo el compose y el `.env` alcanza:
@@ -95,9 +108,9 @@ cualquier entorno (en desarrollo lo resuelve el proxy de Vite; en el contenedor,
 | Archivo | Qué es |
 |---|---|
 | [`decisiones.md`](decisiones.md) | Bitácora de decisiones técnicas, problemas resueltos y declaración de uso de IA. Se acumula TP a TP |
-| [`evidencias.md`](evidencias.md) | Las capturas de cada TP, con una explicación de qué se está viendo |
+| [`evidencias.md`](evidencias.md) | Las capturas del TP1 y del TP2. Desde el TP3 la cátedra no las pide: lo que se corrige se navega en este repo, y cada decisión lleva su URL en `decisiones.md` |
 | [`CLAUDE.md`](CLAUDE.md) | Las reglas de trabajo del repositorio: todo por PR, cuándo se actualiza cada archivo, cómo se cierra cada TP |
-| [`informes/`](informes/) | Un informe en PDF por trabajo práctico, paso a paso |
+| [`informes/`](informes/) | Un informe en PDF por trabajo práctico, del TP1 al TP4 |
 | [`img/`](img/) | Las imágenes de las evidencias |
 
 ## Trabajos prácticos
@@ -111,6 +124,7 @@ Planificación y tablero: **[IngSoft3 — Inventario DevOps](https://github.com/
 | TP2 | Contenedores: la app del semestre | [`v2.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v2.0.0) |
 | TP3 | Planificación y trazabilidad | [`v3.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v3.0.0) |
 | TP4 | CI: Pipelines as Code | [`v4.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v4.0.0) |
+| TP5 | Testing en el pipeline: unit tests, coverage y umbral | [`v5.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v5.0.0) |
 
 Cada práctico se cierra con su tag y su release: el tag marca el commit exacto con el que quedó
 entregado.

@@ -26,9 +26,9 @@ No al final del TP. El reglamento avisa que el historial de Git muestra *cuándo
 | Archivo | ¿Se commitea? | Qué lleva y cuándo se toca |
 |---|---|---|
 | `decisiones.md` | ✅ sí | Cada decisión técnica **con su porqué**, cada problema y cómo se resolvió, y la declaración de uso de IA. Se **acumula** con un `## TPn — …` por trabajo práctico: nunca se reescribe ni se borra lo anterior |
-| `evidencias.md` | ✅ sí | Cada captura 📸 con una línea que explique qué se está viendo. Se actualiza apenas se saca la captura (las imágenes van en `img/`) |
+| `evidencias.md` | ✅ sí | **Cerrado en el TP2.** La cátedra dejó de pedirlo desde el TP3: desde el TP5 **no se sacan capturas**; cada decisión lleva al lado la **URL** (corrida, PR, package, entorno) que la prueba, dentro de `decisiones.md`. TP6 y TP7 piden además una sección «Enlaces de este TP» arriba de todo |
 | `aprendizajes.md` | ❌ **local** | Qué se aprendió, qué hace cada comando, qué confundió y cómo se entendió |
-| `notas-defensa-p1.md` | ❌ **local** | Las preguntas de ejemplo de cada enunciado, con la respuesta armada |
+| `defensa-p1.md` / `defensa-p2.md` | ❌ **local** | Las preguntas de ejemplo de cada enunciado, con la respuesta armada |
 
 **Los dos locales se ignoran vía `.git/info/exclude`**, no vía `.gitignore`. Diferencia:
 `.gitignore` se versiona y viaja a quien clone el repo; `.git/info/exclude` es el ignore **privado
@@ -38,8 +38,11 @@ personales.
 > ⚠️ `.git/info/exclude` **no se clona**. Si este repo se clona en otra máquina, hay que volver a
 > agregar estas dos líneas:
 > ```bash
-> printf 'aprendizajes.md\nnotas-defensa-p1.md\n' >> .git/info/exclude
+> printf 'aprendizajes.md\ndefensa-p1.md\ndefensa-p2.md\n' >> .git/info/exclude
 > ```
+
+Desde el TP5 tampoco hay informes PDF en `informes/`: con el corte de P2 encima (26/10) se prioriza
+lo que se corrige, que es `decisiones.md` con sus URLs.
 
 ## 3. Cada TP se cierra con su tag y su release
 
