@@ -88,3 +88,31 @@ def test_obtener_un_producto_inexistente_devuelve_no_encontrado(db):
     db.get.return_value = None
     with pytest.raises(NoEncontradoError):
         producto_service.obtener(db, 404)
+
+
+def test_un_producto_con_movimientos_no_se_elimina(db, producto):
+    # Arrange: existe y tiene 3 movimientos
+    db.get.return_value = producto
+    db.scalar.return_value = 3
+
+    # Act / Assert: regla 8 — el historial no se borra; se da de baja
+    with pytest.raises(ReglaDeNegocioError) as info:
+        producto_service.eliminar(db, 1)
+    assert "3 movimiento(s)" in info.value.mensaje
+    db.delete.assert_not_called()
+
+
+def test_un_producto_sin_movimientos_se_elimina(db, producto):
+    db.get.return_value = producto
+    db.scalar.return_value = 0
+
+    producto_service.eliminar(db, 1)
+
+    db.delete.assert_called_once_with(producto)
+    db.commit.assert_called_once()
+
+
+def test_eliminar_un_producto_inexistente_devuelve_no_encontrado(db):
+    db.get.return_value = None
+    with pytest.raises(NoEncontradoError):
+        producto_service.eliminar(db, 404)

@@ -38,3 +38,13 @@ def actualizar(producto_id: int, datos: ProductoActualizar, db: Session = Depend
         return producto_service.actualizar(db, producto_id, datos)
     except NoEncontradoError as e:
         raise HTTPException(status_code=404, detail=e.mensaje)
+
+
+@router.delete("/{producto_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar(producto_id: int, db: Session = Depends(get_db)):
+    try:
+        producto_service.eliminar(db, producto_id)
+    except NoEncontradoError as e:
+        raise HTTPException(status_code=404, detail=e.mensaje)
+    except ReglaDeNegocioError as e:
+        raise HTTPException(status_code=400, detail=e.mensaje)

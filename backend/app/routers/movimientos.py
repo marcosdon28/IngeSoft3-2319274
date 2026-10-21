@@ -22,3 +22,13 @@ def registrar(datos: MovimientoCrear, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=e.mensaje)
     except ReglaDeNegocioError as e:
         raise HTTPException(status_code=400, detail=e.mensaje)
+
+
+@router.delete("/{movimiento_id}", status_code=status.HTTP_204_NO_CONTENT)
+def anular(movimiento_id: int, db: Session = Depends(get_db)):
+    try:
+        movimiento_service.anular(db, movimiento_id)
+    except NoEncontradoError as e:
+        raise HTTPException(status_code=404, detail=e.mensaje)
+    except ReglaDeNegocioError as e:
+        raise HTTPException(status_code=400, detail=e.mensaje)
