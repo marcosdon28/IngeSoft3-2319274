@@ -39,7 +39,7 @@ export default function App() {
     <>
       <header>
         <h1>Inventario</h1>
-        <p>Ingeniería del Software 3 · UCC 2026 · app del semestre</p>
+        <p>Ingeniería del Software 3 · UCC 2026 · app del semestre · desplegada por el pipeline (TP6)</p>
         <nav>
           {PESTANAS.map(([id, rotulo]) => (
             <button key={id} className={pestana === id ? 'activa' : ''} onClick={() => setPestana(id)}>
