@@ -57,9 +57,23 @@ Backend: pytest con cobertura de línea y rama, umbral 85 % (combinada). Fronten
 cobertura v8, umbral 90 % de líneas y 85 % de ramas. Por debajo del umbral, el comando falla — y con
 él, el check del Pull Request.
 
+### Integración y e2e (TP7)
+
+En `frontend/e2e/`, con Playwright, contra el entorno desplegado: `api.spec.js` le habla a la api
+(sin navegador) y `inventario.spec.js` usa la app con Chromium. En el pipeline corren contra QA
+después de cada deploy, y producción sólo se promueve si las dos pasan. Para correrlas contra el
+compose local:
+
+```bash
+cd frontend && npm ci && npx playwright install chromium
+API_BASE_URL=http://localhost:8000 npx playwright test e2e/api.spec.js
+E2E_BASE_URL=http://localhost:3000 API_BASE_URL=http://localhost:8000 npx playwright test e2e/inventario.spec.js
+```
+
 ### Los entornos desplegados (TP6)
 
-El pipeline despliega solo: cada merge a `main` llega a **QA**; **producción** sólo con aprobación.
+El pipeline despliega solo: cada merge a `main` publica las dos imágenes y las lleva a **QA**; corren
+la integración y la e2e contra QA, y **producción** recibe **la misma imagen** sólo con aprobación.
 
 | Entorno | Aplicación | API | Base |
 |---|---|---|---|
@@ -141,6 +155,7 @@ Planificación y tablero: **[IngSoft3 — Inventario DevOps](https://github.com/
 | TP4 | CI: Pipelines as Code | [`v4.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v4.0.0) |
 | TP5 | Testing en el pipeline: unit tests, coverage y umbral | [`v5.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v5.0.0) |
 | TP6 | CD: environments, aprobaciones y Render + Neon | [`v6.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v6.0.0) |
+| TP7 | La imagen como unidad de release + integración y e2e | [`v7.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v7.0.0) |
 
 Cada práctico se cierra con su tag y su release: el tag marca el commit exacto con el que quedó
 entregado.

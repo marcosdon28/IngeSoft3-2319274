@@ -5,7 +5,17 @@ reescribir lo anterior.
 
 Repositorio: <https://github.com/marcosdon28/IngeSoft3-2319274>
 
-## Enlaces de este TP (TP6)
+## Enlaces del TP7
+
+| Qué | Enlace |
+|---|---|
+| **Packages** públicos, etiquetados `sha-<commit>` (uno por merge; nunca `latest`) | <https://github.com/marcosdon28/IngeSoft3-2319274/pkgs/container/inventario-backend> · <https://github.com/marcosdon28/IngeSoft3-2319274/pkgs/container/inventario-frontend> |
+| **Corrida con integración VERDE y e2e ROJA** (la promoción frenada): commit que rompió la app #38 | <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39644611792> — artefactos `playwright-report-integracion` (verde) y `playwright-report-e2e` (rojo) |
+| **Cadena completa verde** posterior, hasta PROD (el arreglo, #39) | <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39646124064> |
+| QA (ejecuta la imagen del último merge) | front <https://inventario-front-qa.onrender.com> · api <https://inventario-api-qa.onrender.com> |
+| PROD (ejecuta la imagen aprobada) | front <https://inventario-front-prod.onrender.com> · api <https://inventario-api-prod-7xrj.onrender.com> |
+
+## Enlaces del TP6
 
 Lo que no se encuentra navegando el repositorio, en un solo lugar:
 
@@ -1185,3 +1195,211 @@ verifiqué:
 Lo que **no** delegué: Render + Neon como riel y por qué, usar la API en vez de los hooks y asumir
 la contrapartida del alcance de la clave, qué mira el aprobador, el patrón de deployment para una
 producción real, y el plan de rollback.
+
+---
+
+## TP7 — Contenedores en el pipeline + integración y e2e
+
+### Build once, deploy many: el problema del TP6 que resuelve la imagen como unidad
+
+En el TP6 lo pude ver con un ejemplo propio y no con el del escenario: el smoke con commit se puso
+**rojo** en la corrida 39635800039 porque `/health` decía `"commit":"local"`. Render reconstruía
+mis Dockerfiles en cada deploy, y ese build no era el del pipeline: no recibía el `--build-arg`, no
+pasaba por los tests, y entre uno y otro podía cambiar una imagen base (`python:3.12-slim`,
+`nginx:alpine`, `node:22-alpine` no están fijadas por digest). Lo que corría en QA era **otra
+construcción** del mismo commit. Desde el PR [#35](https://github.com/marcosdon28/IngeSoft3-2319274/pull/35)
+los cuatro servicios **ejecutan la imagen del registry**: la misma que construyó el job que corrió
+los tests, bit a bit. La unidad de release pasó de «un commit que alguien construye» a «una imagen
+inmutable que se promueve».
+
+### Cómo pasaron los servicios a ejecutar la imagen
+
+| Decisión | Por qué |
+|---|---|
+| **Cambiar la fuente de los cuatro servicios existentes** (`PATCH /v1/services/{id}` con `image.imagePath`), no crear servicios nuevos | Conserva las URLs, las variables de entorno, los ids (que son las variables de los environments) y el historial de deploys. Crear nuevos habría dado otras URLs y obligado a recargar `BACKEND_URL`, smokes y enlaces — y a borrar los viejos para no duplicar horas del workspace |
+| **La imagen con la que quedaron configurados**: `sha-393bb89…` (el commit de cierre del TP6, verificado con `docker pull` sin sesión) | Render exige una imagen para cambiar la fuente; es sólo el **punto de partida**. Lo que corre lo nombra **cada deploy** del pipeline con su propio `sha-<commit>`: Render sólo exige que coincidan el registry y el nombre de la imagen. Esa configuración **no se actualiza** con cada merge, y por eso el botón *Manual Deploy* del panel sería peligroso: desplegaría la imagen de *Settings*, no la que corre |
+| Primero **uno solo** (el front de QA), con un deploy a mano por `imageUrl`, y recién después los otros tres y el pipeline | Cambiar la fuente **no despliega nada**: el servicio sigue corriendo lo que tenía. El deploy a mano fue la prueba (`live` en ~30 s, con el digest `sha256:8930…` registrado en el deploy, y el front sirviendo contra su api); la entrega es lo que despliega la corrida |
+| El deploy manda **`imageUrl`** (el equivalente del `imgURL` del hook) y **ya no manda commit** | Con una imagen no hay nada que construir. Dejar el `commitId` le haría creer a quien lea el YAML que Render todavía compila. El script acepta las dos cosas y lo dice en el log |
+| **Una sola etiqueta por imagen, `sha-<40 caracteres>`; `latest` no existe** | `latest` no dice qué contenido hay detrás y se mueve. Un deploy que lo nombrara ejecutaría «lo último publicado», haya pasado las e2e o no. Con el commit en la etiqueta no hay forma de desplegar algo sin decir exactamente qué es. El registry compara la etiqueta letra por letra: el commit corto no sirve (`manifest unknown`) |
+
+**Del tag de git a la imagen, en un paso**: `git rev-list -n1 v7.0.0` da el commit; esa etiqueta
+`sha-<commit>` está en los dos packages. `v7.0.0` es el **nombre** de una versión que sé que anduvo
+en PROD; `sha-<commit>` es **el binario** de ese nombre. Para promover uso siempre el segundo: el
+tag de git se puede mover; una imagen etiquetada por commit no cambia de contenido.
+
+**Cómo se comprueba, desde afuera, que un entorno EJECUTA mi imagen.** Tres lugares, de más a
+menos público: (1) `/health` devuelve el commit **horneado en la imagen** (`ARG APP_COMMIT`, que
+sólo pone el pipeline) y el smoke lo compara con el de la corrida; (2) la API de Render muestra, en
+cada deploy, `image.ref = ghcr.io/…:sha-<commit>` y `image.sha = sha256:…` (el digest); (3) en el
+panel, *Events* de cada servicio dice que el deploy lo disparó la API (mi usuario) y nombra la
+imagen. Lo que el smoke **no** alcanza a probar: que la app funcione. Que responda y corra el
+commit correcto no dice que crear un producto ande — eso es la e2e.
+
+### Las dos suites: qué probé en cada una, y por qué no es lo mismo
+
+Las dos viven en `frontend/e2e/` y usan la misma herramienta, **Playwright**: la de integración con
+el fixture `request` (un cliente HTTP, sin navegador), la e2e con Chromium. Las dos corren
+**contra QA desplegado** —la api y el front de QA, que ya ejecutan la imagen de esa corrida— y
+ninguna usa dobles: ni `page.route`, ni base en memoria, ni `test.skip`.
+
+**Integración (`e2e/api.spec.js`, job `integracion`)** — la api con su base de verdad detrás:
+
+| # | Prueba | Por qué ésa |
+|---|---|---|
+| a | Alta de una categoría → `GET` la encuentra → `DELETE` 204 → ya no está | El `GET` que sigue al `POST` le pregunta **a Postgres**, no a un doble. Si el código mandara algo que la base rechaza, acá contesta 500 y un unitario con `Mock(spec=Session)` daría verde |
+| b | Nombre vacío → `422` y la lista **no cambió** | El contrato del error, y que «rechazar» sea de verdad no crear |
+| c | **La regla 1 contra la base** (la elegí yo): producto con stock 5, salida de 6 → `400` «Stock insuficiente» y el `GET` del producto sigue diciendo 5 | Es la regla central del dominio. El unitario del TP5 prueba la *lógica* con un producto armado a mano; ésta prueba que la regla frena **antes del `commit`** con una transacción real: si alguien moviera el `producto.stock -= cantidad` arriba del `if`, el unitario con mock también lo vería, pero sólo ésta vería que la base quedó mal |
+
+**E2E (`e2e/inventario.spec.js`, job `e2e`)** — un navegador usando la app completa:
+
+| # | Flujo | Por qué ése |
+|---|---|---|
+| 1 | **Creación**: escribir una categoría con nombre único, *Agregar*, verla en la tabla, *Eliminar <nombre>*, que desaparezca | El ciclo completo front → nginx → api → base → front, afirmando sobre el dato que el test creó |
+| 2 | **Error/validación**: producto con stock 5, pedir una salida de 6 → el usuario **ve** el motivo exacto («Stock insuficiente: hay 5 y querés sacar 6.»), el botón queda deshabilitado, el historial no tiene la fila y la base tampoco | Lo que el usuario ve cuando se equivoca también es comportamiento |
+| 3 | **El flujo de todos los días** (lo elegí yo): registrar una salida de 10 unidades, ver el «10 % de descuento» antes de confirmar y después en el historial (`9.000,00`), y el stock bajado en la base | Es lo que un encargado de depósito hace cada día: si mañana no anda, **me escriben por esto**. Y toca el borde de la regla 5 de punta a punta: el front calcula 10 %, la api lo recalcula y la tabla lo muestra |
+
+**Lo que cada suite ve y las otras no.** El unitario con doble (TP5) verifica *mi lógica* con la
+base reemplazada; la integración verifica que *mi api y Postgres se entiendan* (tipos, constraints,
+transacciones); la e2e verifica que *el front use bien la api* (el nombre del campo, la ruta, el
+texto del botón, lo que se muestra). Un cambio de una línea que **sólo** atrapa la integración: que
+`producto_service.crear` dejara de hacer `.upper()` del SKU y la base tuviera un índice único
+case-insensitive — el mock acepta cualquier cosa; Postgres no. Y **el par verde/rojo** es un
+diagnóstico sin abrir el código: integración verde + e2e roja = la api y la base están sanas, el
+que usa mal la api es el front; integración roja = la api o la base, y la e2e ni corre (su `needs`
+no se cumple).
+
+**Lo que NO puse en cada suite, y por qué (pirámide).** En integración no están las reglas de
+borde del descuento (9 contra 10 unidades) ni los mensajes de validación de Pydantic: eso ya lo
+custodian 38 unitarios en milisegundos, y repetirlos contra Neon sería pagar segundos por lo mismo.
+En e2e no está «crear un producto desde el formulario» ni «dar de baja»: cada flujo de navegador
+cuesta ~1 s contra QA y comparte el entorno con todas las corridas; tres flujos que cubren
+crear/ver/borrar, el error y el uso diario alcanzan para la red de seguridad. La UI de productos
+se verifica indirectamente (los productos de los flujos 2 y 3 se crean por API y aparecen en el
+selector del formulario).
+
+**Integración amplia, no estrecha.** La estrecha —levantar la api en el runner con un Postgres como
+`services:` del job— llega antes (no necesita deploy) y aísla cada corrida; la amplia prueba la api
+**ya desplegada**, con la imagen exacta de la corrida y la base real de QA, con un décimo de la
+configuración. Elegí la amplia porque lo que quiero saber es si *esta imagen, en Render, contra
+Neon* anda — no si el código anda en un Postgres de laboratorio. Lo que pierdo: aislamiento (QA es
+uno solo) y velocidad (depende del cold start).
+
+**Cold start y tests flaky.** `timeout: 60 s` por test, `expect.timeout: 15 s` por aserción,
+`retries: 1`. El retry absorbe una demora suelta de la red; si un test pasa recién en el retry
+aparece como **flaky** en el reporte con la corrida en verde, y eso se mira: un flaky aislado puede
+ser el plan gratuito; el mismo test flaky dos corridas seguidas es el test. Un test que a veces
+falla es peor que no tenerlo: entrena al equipo a ignorar el rojo. Y los dos jobs corren **después**
+del smoke de `deploy-qa`, que ya despertó QA y esperó `live`: por eso un minuto por test alcanza.
+Nada de `sleep`: cada `expect` espera a que la condición se cumpla, hasta su tope.
+
+**QA es uno solo y lo comparten todas las corridas — y las dos suites.** Cada prueba fabrica sus
+datos con `Date.now()` en el nombre y **borra lo que creó, comprobándolo** (`DELETE` 204 y después
+un `GET` que ya no lo encuentra), en un `finally` para que un fallo a mitad de camino no deje basura.
+Lo aprendí en la primera corrida local: la e2e de categorías falló por un selector ambiguo y dejó
+una categoría `e2e …` en la base; la segunda corrida la encontró. Y el **límite conocido** de la
+cadena: con dos merges seguidos, la corrida B redespliega QA mientras la integración o la e2e de A
+lo usan — un rojo de A que no es de su código, o peor, un verde que probó la imagen de B. Lo
+reconocería mirando en Render qué imagen corre QA y a qué hora corrió el `deploy-qa` de B; lo
+resolvería rechazando la corrida A con el motivo y dejando que valga la B, que trae los dos
+cambios. La regla práctica: **un merge por vez** mientras la cadena corre. Un equipo real lo
+resuelve con un entorno por corrida; acá QA es uno.
+
+**La misma imagen del front en QA y en PROD.** `ghcr.io/marcosdon28/inventario-frontend:sha-<commit>`
+corre en los dos entornos, bit a bit. Lo único que los distingue son dos variables del servicio:
+`BACKEND_URL` (la api de **su** entorno, sin barra final) y `DNS_RESOLVER`; nginx las lee al
+arrancar desde la plantilla del TP6. Adentro de la imagen quedan el `dist/` de Vite —que llama a
+`/api/...` con ruta relativa, sin ningún host— y la plantilla. Del lado del backend, lo mismo con
+`DATABASE_URL`. Si alguna dirección estuviera horneada, la imagen de QA no serviría para PROD y
+«se promueve lo mismo que se verificó» sería mentira.
+
+### La cadena completa, en corridas reales
+
+| Qué | Enlace |
+|---|---|
+| Primer deploy **por imagen** a QA y a PROD (api y front `live` con `sha-11410dd…`, digest registrado en el deploy) | <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39641520928> |
+| **Primera cadena completa**: build → deploy-qa → integración (19 s) → e2e (49 s) → aprobación → deploy-prod | <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39643619818> |
+| **La rotura controlada**: integración **verde**, e2e **roja**, `deploy-prod` sin arrancar | <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39644611792> · reportes de esa corrida: `playwright-report-integracion` (verde) y `playwright-report-e2e` (rojo), en *Artifacts* |
+| El commit que rompió la app (sólo `Movimientos.jsx`, nada de `e2e/`) | <https://github.com/marcosdon28/IngeSoft3-2319274/pull/38> |
+| El arreglo, y la **cadena completa verde** posterior hasta PROD | <https://github.com/marcosdon28/IngeSoft3-2319274/pull/39> |
+
+### La e2e frenando una promoción: qué se rompió y cómo lo diagnostiqué con los dos reportes
+
+**Qué cambié**: el texto del botón del formulario de movimientos, «Registrar» → «Guardar»
+(PR #38, un solo archivo de la app: `frontend/src/pages/Movimientos.jsx`). Elegí eso y no el nombre
+del campo que el front manda porque lo que la e2e tiene que atrapar es lo que **nadie más ve**: un
+cambio de texto no rompe el build, no lo ve ningún unitario (los del front prueban `lib/reglas.js` y
+`api.js`, no componentes) y el smoke le habla a la api, no al botón. Compiló, los 37 tests del front
+pasaron, QA respondió y corría el commit.
+
+**Qué hizo la cadena** (corrida 39644611792): `build` ✓ → `deploy-qa` ✓ (smoke verde, vuelta 1,
+con el commit comprobado) → `integracion` ✓ **3 passed (7 s)** → `e2e` ✗ (`1 passed, 2 failed`,
+con su retry cada uno, 3 min 20 s) → **`deploy-prod` salteado**: ni apareció como pendiente de
+aprobación. El smoke en verde es parte del punto: el sistema respondía y aun así estaba roto.
+
+**Cómo lo diagnostiqué, con los reportes y no con el código.** Bajé los dos artefactos de esa
+corrida (`gh run download … -n playwright-report-e2e` y `-n playwright-report-integracion`). El
+verde dice que la api y la base están sanas: alta, borrado, validación y la regla 1 pasaron contra
+la api de QA. El rojo, en el test *«una salida mayor al stock muestra el motivo, deshabilita el
+botón…»*, dice:
+
+```
+Error: expect(locator).toBeDisabled() failed
+Locator: getByRole('button', { name: 'Registrar' })
+Error: element(s) not found
+```
+
+y el *snapshot* de la página que viene en el reporte muestra el formulario con un botón «Guardar»
+donde la prueba buscaba «Registrar». El flujo de todos los días falló por lo mismo, al intentar
+hacer click. **El par verde/rojo leído contra la tabla del §2.5**: la integración le habló a la api
+con el contrato correcto y la base guardó y borró sin chistar → la api está bien; el que no ofrece
+lo que el usuario necesita es el **front**. Fila 1, sin abrir el código. Si hubiera roto la api, la
+integración se habría puesto roja y la e2e ni habría corrido (su `needs`): fila 2.
+
+**Qué NO pasó gracias al gate**: PROD no recibió un front en el que no se puede registrar un
+movimiento (el botón seguía existiendo, pero cualquier automatización, atajo o documentación que
+dijera «Registrar» quedaba rota — y en un caso real sería el campo mal nombrado, con la api
+rechazando cada alta). Y **qué clase de bug el gate no ataja**: uno que no esté en los tres flujos
+—dar de baja un producto, por ejemplo—, o uno de datos (un descuento mal calculado que la e2e no
+afirme), o uno que sólo aparezca con carga. La e2e es la red final, no la única.
+
+**Lo que la corrida roja me enseñó de mis propias pruebas.** Dejó **basura en QA**: dos categorías
+y dos productos `e2e …`. El `finally` que limpia estaba, pero el `click` al botón que no existía
+esperó hasta el tope del **test** (60 s), el test murió por timeout y el `finally` nunca corrió.
+Los borré a mano por la API y agregué `actionTimeout: 15_000` a la configuración (en el mismo PR
+del arreglo): ahora una acción falla a los 15 s y la limpieza llega a ejecutarse. Es exactamente el
+tipo de cosa que sólo se ve rompiendo de verdad.
+
+### Problemas encontrados y cómo los resolví
+
+- **`$img:sha-$SHA` en zsh no es lo que parece.** Al pasar tres servicios a imagen con un `for` en
+  la terminal, la API contestó 400 y el error no decía por qué: zsh interpreta `$img:s…` como un
+  *modificador de historial* y el JSON salió roto. Con `${img}` entre llaves anduvo. El primer
+  servicio (el front de QA) lo había hecho sin bucle, por eso ese sí funcionó.
+- **La primera e2e local falló por un selector ambiguo**: `getByRole('cell', { name })` matcheaba
+  dos celdas, la del nombre y la del botón «Eliminar <nombre>» (que también contiene el nombre).
+  `exact: true` lo resuelve. Y dejó una categoría en la base local; de ahí el `finally` de limpieza.
+- **La corrida roja dejó basura en QA** (arriba): el timeout del test mató el `finally`. Arreglado
+  con `actionTimeout`.
+- **Dos PRs quedaron `BEHIND` al mergear uno antes**: la protección de `main` tiene `strict: true`
+  (TP4), así que `gh pr merge` los rechaza hasta hacer *Update branch*. `gh pr update-branch`, que
+  re-dispara los checks, y después el merge. Es el gate del TP4 haciendo lo suyo.
+- **Un reporte de Playwright se coló en un commit.** Al preparar la rama de la rotura desde un
+  `main` anterior al `.gitignore` nuevo, `git add frontend` se llevó `playwright-report/index.html`
+  y `test-results/.last-run.json`. Lo vi en el `--stat` antes de mergear y los saqué con
+  `git rm --cached` + `--amend`. Lección: mirar el `--stat` de cada commit, no sólo el diff.
+
+### Declaración de uso de IA — TP7
+
+Usé **Claude Code (Claude Fable 5.1)**, que además de escribir **operó**: pasó los cuatro servicios
+de Render a imagen por la API, hizo el deploy de prueba, mergeó, aprobó y bajó los reportes.
+
+| Qué fue asistido | Cómo lo verifiqué |
+|---|---|
+| Las dos suites de Playwright | Cada prueba la leí preguntándome **qué verifica, contra qué entorno corre y qué pasa si falla**: por eso cada una afirma sobre su propio dato (nombre con la hora), limpia y comprueba la limpieza. Las corrí primero contra el compose local (6 en verde, base vacía al final) y después en QA. Y **las vi fallar por una rotura real** de la app, no del test |
+| Los endpoints `DELETE` del backend (regla 8 y anulación) | Siete unitarios con mock que invierten cada rama (con movimientos → 400 y sin `delete`; sin movimientos → `delete` una vez; anular una entrada que dejaría stock negativo → regla 1), y la suite de integración los usa contra Postgres en cada corrida |
+| El paso a imagen de los servicios y el `imageUrl` del script | Comprobado desde afuera: `runtime: image` y `repo: null` en la API, el deploy con `image.ref` y digest, y `/health` devolviendo el commit **horneado** (ya no el `RENDER_GIT_COMMIT` de un rebuild) |
+| El diagnóstico de la corrida roja | Lo hice con los reportes descargados —el error, el snapshot del formulario con el botón «Guardar»— antes de mirar el diff; el diff sólo lo confirmó |
+| Redacción de esta sección | Revisada contra lo que pasó, en el orden en que pasó |
+
+Lo que **no** delegué: qué tres flujos y qué tres pruebas de integración (y por qué ésas), amplia
+contra estrecha, qué romper para la evidencia, y la lectura del par verde/rojo.
