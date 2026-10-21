@@ -591,3 +591,300 @@ que el reglamento pide verificar de lo que produce la IA.
 
 Lo que **no** delegué: la estructura del pipeline, la decisión de construir con el Dockerfile en vez
 de compilar aparte, qué romper para demostrar el gate, y la interpretación de las mediciones.
+
+---
+
+## TP5 — Testing en el pipeline: unit tests, coverage y el umbral que frena un merge
+
+> 📎 Desde este práctico no hay `evidencias.md` ni capturas: cada afirmación lleva al lado la URL de
+> la corrida o del Pull Request que la prueba.
+>
+> | Lo que prueba | Enlace |
+> |---|---|
+> | La suite, la cobertura y el umbral (PR mergeado) | <https://github.com/marcosdon28/IngeSoft3-2319274/pull/24> |
+> | Resumen de cobertura en el Summary + reportes descargables (`coverage-backend`, `coverage-frontend`) | <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39624071037> |
+> | La corrida **roja por umbral**, con el número en el log | <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39624730420> |
+> | La secuencia rojo → tests → verde → merge | <https://github.com/marcosdon28/IngeSoft3-2319274/pull/25> |
+> | El freno vigente, **abierto y en rojo** | <https://github.com/marcosdon28/IngeSoft3-2319274/pull/26> |
+
+### Qué lógica elegí testear y por qué ésa
+
+Las **7 reglas de negocio** del TP2, porque son donde un bug duele: stock negativo (regla 1), dos
+productos con el mismo SKU (2), una categoría borrada con productos adentro (3), un descuento mal
+calculado en un remito (5). Un bug en un componente de React se ve en la pantalla y se arregla; un
+bug en el cálculo del descuento sale en una venta y nadie lo nota hasta que cierran la caja.
+
+| Lado | Qué se prueba | Tests | Dónde |
+|---|---|---|---|
+| Backend | Regla 5, `calcular_descuento` / `calcular_total` (función pura) | 7 | `tests/test_descuento.py` |
+| Backend | Regla 6, `Producto.bajo_stock` (propiedad derivada) | 4 | `tests/test_bajo_stock.py` |
+| Backend | Regla 4, validación de borde con Pydantic (**casos de error**) | 4 | `tests/test_schemas.py` |
+| Backend | Reglas 1 y 7, `movimiento_service.registrar` (**con mock**) | 5 | `tests/test_movimiento_service.py` |
+| Backend | Regla 2, `producto_service` + filtro de bajo stock + baja | 6 | `tests/test_producto_service.py` |
+| Backend | Regla 3, `categoria_service` + nombre único | 5 | `tests/test_categoria_service.py` |
+| Frontend | Reglas 1, 4, 5, 6 y 7 en la vista, `lib/reglas.js` | 21 | `src/lib/reglas.test.js` |
+| Frontend | El cliente de la API, `api.js` (**con mock**, casos de error) | 6 | `src/api.test.js` |
+
+**31 tests de backend sobre 7 reglas y 27 de frontend**, todos con la forma AAA (Arrange / Act /
+Assert) y con nombres que dicen el comportamiento, no el método: `test_una_salida_mayor_al_stock_
+es_rechazada_y_no_toca_la_base` es el diagnóstico cuando falle a las 3 AM. Los parametrizados
+cuentan como un método cada uno (`@pytest.mark.parametrize` / `it.each`); el mínimo de ocho se
+cumple con métodos, no con datos.
+
+**El criterio para saber si un test vale** —si invierto la regla, algo se pone rojo— lo probé sobre
+los bordes a propósito: hay un test con **exactamente** el umbral (10 unidades → descuento; 6 con
+mínimo 6 → bajo stock; sacar 10 de 10 → válido). Si alguien cambia `>=` por `>` en
+`calcular_descuento`, cae `test_descuento_por_cantidad_aplica_desde_el_umbral_inclusive[10-10.0]`;
+si cambia `<=` por `<` en `bajo_stock`, cae `[6-6-True]`. Un test sólo con 1 y 100 unidades dejaría
+pasar ese cambio.
+
+### Las tres técnicas, de los dos lados
+
+| Técnica | Backend (pytest) | Frontend (vitest) |
+|---|---|---|
+| **Parametrizado** | `@pytest.mark.parametrize` en descuento, bajo stock | `it.each` en `calcularTotal`, `estaBajoStock`, cantidades inválidas |
+| **Caso de error** | `MovimientoCrear(cantidad=0)` → `ValidationError` señalando `cantidad`; `ReglaDeNegocioError` con el mensaje que dice *cuánto hay y cuánto se pidió* | `motivoMovimientoInvalido` devuelve el motivo exacto; un `400` de la API se convierte en `Error` con el `detail` del backend |
+| **Mock** | `Mock(spec=Session)` de SQLAlchemy | `vi.fn()` como reemplazo del `fetch` |
+
+**El mock del backend.** La dependencia externa de los services es la base de datos, y **ya entraba
+desde afuera**: desde el TP2 cada service recibe `db: Session` por parámetro (lo inyecta FastAPI con
+`Depends(get_db)`). No hizo falta el refactor del «paso cero» de la guía. El doble es
+`unittest.mock.Mock(spec=Session)`: `spec` hace que sólo acepte los métodos que la `Session` real
+tiene, así un typo en el service rompe el test en vez de pasar en silencio. En cada test el doble
+actúa de las dos formas que distingue la guía:
+
+- como **stub**, cuando `db.get.return_value = producto` le dice qué contestar;
+- como **mock**, cuando el assert mira **la interacción**: `db.add.assert_called_once()` y
+  `db.commit.assert_called_once()` en el movimiento válido —el equivalente del
+  `Verify(…, Times.Once)` de Moq—, y `db.add.assert_not_called()` cuando una regla frenó. Si mañana
+  alguien duplica el `add` o commitea antes de validar, el test se pone rojo sin tocar PostgreSQL.
+
+**El mock del frontend, y el refactor que lo hizo posible.** `api.js` tenía el mismo problema del
+`new NotificadorEmail()` de la guía con otra cara: `pedir()` llamaba a `fetch` global adentro, así
+que no había por dónde meter un impostor sin levantar la API. El cambio: `crearApi(fetchImpl)`
+recibe la función que hace el pedido, y `export const api = crearApi()` le pasa el `fetch` real del
+navegador —así ninguna pantalla cambió—. El test le pasa `vi.fn().mockResolvedValue(…)`. El que
+vale como mock es `listar sólo bajo stock le pide a la API la ruta con el filtro`: no mira lo que
+devolvió, mira que se haya llamado **una vez** y con `/api/productos?bajo_stock=true`. Lo que esto
+**no** prueba: que el backend siga contestando esa ruta — eso es end-to-end, y es el TP7.
+
+### El umbral: el número, la métrica y por qué
+
+| Lado | Medido hoy (línea) | Medido hoy (**rama**) | Umbral | Sobre qué métrica |
+|---|---|---|---|---|
+| Backend | 92,1 % | 82,4 % | **85 %** | la combinada de coverage.py (sentencias + ramas), que hoy da 90,7 % |
+| Frontend | 100 % | 97,2 % | **90 % líneas y 85 % ramas** | las dos, por separado (`thresholds`) |
+
+**Por qué 85 en el backend.** La lógica mide 90,7 y quiero que el umbral me frene si baja, no que
+sea inalcanzable: cinco puntos de margen absorben un método chico sin tests, no una clase entera.
+`--cov-fail-under` de coverage.py evalúa **una sola métrica combinada** (sentencias ejecutadas más
+ramas recorridas, sobre el total de las dos) — no línea sola, que es la menos honesta—, así que
+el umbral mira las ramas aunque el número sea uno. Para subirlo a 95 tendría que testear
+`actualizar` con cada campo del PATCH y `listar` de movimientos (que arma un dict) — código sin
+reglas: no lo vale.
+
+**Por qué 90/85 en el frontend.** Está en 100/97 porque la lógica de la vista es chica y pura. Lo
+puse diez puntos abajo de líneas y doce de ramas a propósito: un umbral al 100 se apaga el primer
+día que alguien agregue una función —la regla «lo que tocás, lo dejás limpio» funciona si el
+número es defendible, no si es un trofeo—. Y va sobre **las dos métricas** porque en vitest 2 una
+función que ningún test llama baja las líneas pero casi no mueve las ramas: con un umbral sólo de
+ramas, la demostración de §3.5 no se habría puesto roja.
+
+### Qué dejé afuera de la cuenta, y por qué cada cosa
+
+**Backend** (`backend/.coveragerc`, `omit`):
+
+| Archivo | Por qué queda afuera |
+|---|---|
+| `app/main.py` | El arranque: crea la app, incluye los routers, crea el schema. Si está mal, la app no levanta y me entero sin test |
+| `app/database.py` | Infraestructura: el engine y la fábrica de sesiones. No hay reglas |
+| `app/config.py` | Lectura del entorno (`os.getenv`). Testearlo es testear `os` |
+| `app/routers/*` | Pegamento HTTP: traducen `ReglaDeNegocioError` → 400 y `NoEncontradoError` → 404. No hay reglas de negocio ahí — a propósito, desde el TP2 — y se verifican end-to-end en el TP7 |
+
+**Lo que NO excluí, aunque la guía lo sugiere como «clases de datos»**: `app/models/` y
+`app/schemas/`. En esta app tienen reglas: `Producto.bajo_stock` es la regla 6 y los `Field(gt=0)` /
+`Field(ge=0)` son la regla 4. Excluirlos sería esconder lógica, que es la trampa que el §2.4 no
+acepta. (Y la trampa inversa no aplica: los routers no tienen ninguna regla adentro, así que
+sacarlos **sí** cambia el número, y mucho: midiendo todo, 67 %; midiendo lo que tiene reglas,
+90,7 %. Esa diferencia es exactamente el caso del §2.4: los routers y el arranque no tienen tests
+ni deberían tenerlos, y arrastran el número al piso. Lo que distingue «medir lo que importa» de
+«esconder lo que no testeé» es esta lista: lo excluido no tiene reglas.)
+
+**Frontend** (`vite.config.js`, `include: ['src/lib/**', 'src/api.js']`): entra la lógica pura y el
+cliente de la API. Quedan afuera los componentes de React (`pages/*.jsx`, `App.jsx`), que son
+pegamento de UI y se verifican con un navegador real en el TP7, y `main.jsx`, el arranque. Es
+`include` y no `exclude` por cómo mide vitest: con `include`, todo archivo de esa carpeta entra
+aunque nadie lo pruebe, así una función nueva sin tests **baja** el número en vez de desaparecer.
+
+### Por qué coverage alto no garantiza calidad — con mi ejemplo
+
+Este test deja `calcular_total` al 100 % y no verifica nada:
+
+```python
+def test_cobertura_sin_verdad():
+    calcular_total(1800, 10, 10)   # se ejecutó entera… y no hay ningún assert
+```
+
+Y uno un poco más tramposo, que **sí** tiene assert y tampoco verifica la regla:
+
+```python
+def test_descuento_devuelve_un_numero():
+    assert isinstance(calcular_descuento(10), float)   # 0.0 también es float: pasa con la regla rota
+```
+
+Coverage mide **ejecución, no verificación**: dice qué código ningún test recorrió (eso es
+información confiable), no que el código recorrido haga lo que debe. Lo que custodia que el
+descuento sea 10 y no 15 son los asserts del test parametrizado, y lo que custodia que el umbral sea
+inclusivo es el dato `(10, 10.0)` de esa tabla. Si el día de mañana alguien pregunta «¿el 90 % de tu
+código está verificado?», la respuesta honesta es: el 90 % se **ejecuta** bajo tests; cuánto se
+**verifica** lo contestaría un mutante (cambiar `>=` por `>` y ver qué se pone rojo), y eso lo hice
+a mano sobre los dos bordes.
+
+### El ejercicio de la rama sin cubrir
+
+Abrí el reporte HTML del backend (`htmlcov/`, artefacto `coverage-backend`) y elegí una rama
+**parcial** (naranja), no una función sin tests:
+
+1. **Qué línea es**: `backend/app/services/producto_service.py`, línea 73,
+   `if datos.precio is not None:` dentro de `actualizar`. El reporte marca `73->75`: sólo se
+   recorrió el camino **falso** (ningún test manda `precio` en el PATCH). Lo mismo pasa en la 79
+   con `stock_minimo`.
+2. **Qué entrada la recorrería**: `ProductoActualizar(precio=1950)` sobre un producto existente.
+3. **Qué decidí**: **no agregarlo**. El camino verdadero es una asignación (`producto.precio =
+   datos.precio`) sin ninguna regla; testearlo sería testear que una propiedad guarda un valor. Lo
+   que sí importa de `actualizar` —que un PATCH parcial no pise los campos que no vinieron— ya está
+   probado en `test_dar_de_baja_un_producto_lo_deja_inactivo_sin_tocar_lo_demas`. Las ramas
+   parciales que quedan son el motivo de que el backend mida 82,4 % de rama y no más, y prefiero
+   ese número honesto a dos tests que no custodian nada.
+
+Del lado del front el reporte marca la línea 19 de `reglas.js`, `Number(precio) || 0`: el `|| 0` sólo
+se recorre si el precio no es numérico, y el precio siempre llega de la API como número. Tampoco lo
+agregué, por la misma razón.
+
+### Las herramientas de mi stack (la tabla «Tu stack, de un vistazo»)
+
+| Lo que hay que lograr | Backend (Python / FastAPI) | Frontend (JS / Vite) |
+|---|---|---|
+| Dónde viven los tests | `backend/tests/` | al lado del código, `*.test.js` |
+| Un test parametrizado | `@pytest.mark.parametrize` | `it.each` |
+| La dependencia entra desde afuera | parámetro `db` del service (ya estaba) | parámetro `fetchImpl` de `crearApi` (refactor de este TP) |
+| Fabricar el doble | `unittest.mock.Mock(spec=Session)` | `vi.fn()` |
+| Medir la cobertura | `pytest --cov --cov-branch` (coverage.py vía pytest-cov) | `vitest run --coverage` (provider v8) |
+| **Un umbral que ROMPE el build** | `--cov-fail-under=85` | `coverage.thresholds: { lines: 90, branches: 85 }` |
+| **Qué ENTRA en la cuenta** | `omit` en `.coveragerc` | `include` en `vite.config.js` |
+| Reporte legible | `--cov-report=html` + `xml` para el Summary | reporter `html` + `json-summary` para el Summary |
+| Que las herramientas entren a la etapa de tests | la etapa `test` instala `requirements-dev.txt` (pytest, pytest-cov) sobre el venv de `build` | `npm ci` sin `--omit=dev`: la etapa `test` hereda las devDependencies de `build` |
+
+Las dos etapas de tests viven **en los Dockerfiles** (`FROM build AS test`), entre `build` y la
+imagen final, y el pipeline sólo las construye y las corre: sigue sin saber cómo se testea mi app,
+igual que en el TP4 no sabía cómo se compila. Una receta, no dos. Las imágenes finales no se llevan
+ni pytest ni vitest: el backend copia sólo el venv y `app/`, el front sólo el `dist/`.
+
+### El gate: qué cambió respecto del TP4
+
+Nada en la protección de `main`: `build-backend` y `build-frontend` siguen siendo los dos required
+checks (verificado con `gh api …/branches/main/protection`). Lo que cambió es **qué puede ponerlos
+en rojo**. Hasta el TP4, sólo que la imagen no se construyera; el backend, en Python, ni siquiera
+podía fallar por el código. Desde este PR, un `docker run` de la etapa de tests devuelve el código de
+salida de pytest / vitest, y ésos fallan por un test en rojo **o por cobertura bajo el umbral**: la
+calidad entra en el mismo check que ya frenaba merges. Tres guardianes: el PR obligatorio (TP1), el
+build (TP4) y el umbral (TP5). Lo que **ninguno** de los automáticos ve: que la regla esté bien
+entendida —si leí mal el requisito, el test lo congela mal y queda verde para siempre—.
+
+### La demostración: el umbral frenando un merge
+
+Son **dos Pull Requests**, a propósito: el primero cuenta la historia completa y el segundo la prueba
+en vivo.
+
+**PR #25 — la secuencia rojo → tests → verde → merge**
+(<https://github.com/marcosdon28/IngeSoft3-2319274/pull/25>):
+
+1. **Código nuevo sin tests, que compila perfecto**: `prioridadDeReposicion` y `ordenarPorPrioridad`
+   en `frontend/src/lib/reglas.js` (y el tablero las usa para ordenar los productos por reponer).
+   `npm run build` en verde, **27 tests en verde**.
+2. **Rojo por cobertura, no por compilación**:
+   <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39624730420>. `build-backend`
+   verde; `build-frontend` **rojo** con el motivo en el log, con todas las letras:
+   ```
+   Tests  27 passed (27)
+   All files   |   86.06 |    97.22 |   58.82 |   86.06 |
+   ERROR: Coverage for lines (86.06%) does not meet global threshold (90%)
+   ```
+   Frenó por **líneas**: 86,06 % contra 90. Las ramas quedaron en 97,22 %, iguales que antes,
+   porque en **vitest 2.1.9** una función que ningún test llama no suma ramas sin cubrir — es
+   justo lo que la guía describe para vitest 3, y la razón por la que el umbral va sobre las dos
+   métricas: con uno sólo de ramas, esto no se habría puesto rojo. El PR quedó `mergeStateStatus:
+   BLOCKED` con `mergeable: MERGEABLE` (sin conflictos: la política es lo que bloquea), y
+   `gh pr merge` lo rechazó: *the base branch policy prohibits the merge*.
+3. **Los tests que faltaban**: `frontend/src/lib/prioridad.test.js`, **diez**, y no los inventé yo:
+   uno por cada camino que el código declara — sin producto, sin stock, por encima del mínimo,
+   urgente, pronto (dos entradas distintas), puede esperar, el borde de «exactamente la mitad del
+   mínimo», el ordenamiento con desempate por nombre y que no mute la lista.
+4. **Verde y merge**: <https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39625075951>
+   (100 % líneas, 98,18 % ramas) → squash a `main`.
+
+Una honestidad que vale la pena dejar escrita: la primera versión de la función quedó **0,74 puntos
+arriba** del umbral (90,74 %) y el gate no se habría puesto rojo. La guía lo avisa —«hacé la cuenta
+con tu reporte antes de subir»—: con 54 líneas medidas, 10 nuevas sin tests no alcanzan. El
+ordenamiento (`ordenarPorPrioridad`), que de todas formas el tablero necesitaba, llevó el número a
+86,06 %. Lo corregí antes de que corriera el pipeline (un `--amend`), así que el PR muestra una sola
+corrida roja.
+
+**PR #26 — el freno vigente, abierto y en rojo hasta la defensa**
+(<https://github.com/marcosdon28/IngeSoft3-2319274/pull/26>): `sugerir_reposicion` en
+`backend/app/services/producto_service.py`, sin tests. Corrida:
+<https://github.com/marcosdon28/IngeSoft3-2319274/actions/runs/39625414893> — `build-frontend` verde,
+`build-backend` rojo con `FAIL Required test coverage of 85% not reached. Total coverage: 82.38%`
+y los **31 tests en verde**. Este PR **no se arregla ni se mergea**: cualquiera que lo abra ve los
+checks obligatorios, cuál está en rojo y por qué, sin depender de una captura mía. Acá frenó el
+**otro** lado y la otra métrica: el backend, por la combinada de coverage.py (82,4 contra 85).
+
+**Qué clase de error deja pasar igual este freno.** Un test que ejecuta la función nueva sin
+afirmar nada (`prioridadDeReposicion(producto)` suelto) hubiera dejado el PR #25 en verde con el
+mismo código: el gate mide ejecución. Y ninguno de los tres guardianes puede saber si «menos de la
+mitad del mínimo» era lo que el negocio quería, o si tenía que ser «menos de un tercio».
+
+### Problemas encontrados y cómo los resolví
+
+- **`tests/` estaba en `backend/.dockerignore` desde el TP2.** Era correcto para la imagen final,
+  pero la etapa `test` hace `COPY tests ./tests` y con esa línea el contexto no los incluye: la
+  guía lo avisa textual («si ahí excluiste la carpeta de tests, no entra por más que la pidas»). Lo
+  saqué; la imagen final sigue sin llevarlos porque su `COPY` es sólo de `app/`.
+
+- **`--cov-fail-under` no mira «líneas» ni «ramas»: mira la métrica combinada.** Con
+  `--cov-branch`, coverage.py informa línea y rama por separado en el XML, pero el umbral se evalúa
+  sobre el porcentaje combinado (la columna `Cover`). Lo verifiqué pidiendo 99: `FAIL Required test
+  coverage of 99% not reached. Total coverage: 90.68%`. Por eso el umbral del backend es **un**
+  número y está declarado como «combinada», y el Summary muestra las dos métricas al lado.
+
+- **El major de `@vitest/coverage-v8` tiene que ser el de vitest.** El proyecto tiene vitest 2.1.x,
+  así que fue `@vitest/coverage-v8@2`, no la última a secas (que es la 4). Con majors distintos
+  vitest arranca y falla de forma críptica. Lo comprobé con `npm ls vitest @vitest/coverage-v8`.
+
+- **`defineConfig` de `vite` no conoce la clave `test`.** Para que `vite.config.js` acepte la
+  configuración de cobertura el import pasa a `vitest/config`, que extiende al de Vite: Vite sigue
+  leyendo el mismo archivo.
+
+- **La Mac tiene Python 3.9 y la app corre con 3.12.** No instalé nada local: la suite se corrió
+  **sólo adentro del contenedor** (`docker build --target test` + `docker run`), que es exactamente
+  lo que corre el pipeline. Una sola receta de tests, como una sola receta de build.
+
+- **Un assert que depende del texto de Pydantic.** `test_un_movimiento_con_cantidad_cero_es_
+  rechazado` comprueba que el mensaje contenga `greater than 0`: ese texto lo escribe Pydantic, no
+  yo. Lo dejé porque el mensaje **es** comportamiento (le llega al usuario), pero queda anotado que
+  un cambio de versión de Pydantic puede romperlo sin que la regla haya cambiado.
+
+### Declaración de uso de IA — TP5
+
+Usé **Claude Code (Claude Fable 5.1)** como en los prácticos anteriores.
+
+| Qué fue asistido | Cómo lo verifiqué |
+|---|---|
+| La escritura de los tests (backend y frontend) | Leí cada test preguntándome **qué verifica cada assert y qué caso no cubre**: por eso cada archivo prueba una regla, cada test un comportamiento, y los bordes están escritos con el valor exacto del umbral. Los corrí en el contenedor antes de subirlos (31 + 27 en verde) y **los invertí a mano** (`>=` → `>` en el descuento, `<=` → `<` en bajo stock) para ver que el test del borde se pusiera rojo |
+| El refactor de `api.js` (`crearApi`) | La app levantada en compose sigue funcionando igual: ninguna pantalla cambió, porque `api` exporta el mismo objeto con el `fetch` real |
+| Las etapas `test` de los Dockerfiles y los pasos del `ci.yml` | Los dos frenos **probados** localmente antes de abrir el PR (umbral 99 en el back, ramas 100 en el front: rojo en los dos), y después en el pipeline con la demostración de §3.5. Verifiqué que la imagen final del front siga siendo nginx (`docker inspect` → `nginx -g daemon off`) |
+| La elección de qué excluir de la cobertura | Es mía: medí con y sin los routers, y decidí no excluir models ni schemas porque tienen reglas |
+| Redacción de esta sección | Revisada contra lo que efectivamente pasó; los problemas listados son los que me pasaron |
+
+Lo que **no** delegué: qué reglas testear, los números del umbral y sobre qué métrica, qué queda
+afuera de la cuenta, y la decisión de no agregar el test de la rama sin cubrir.

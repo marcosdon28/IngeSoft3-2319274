@@ -8,6 +8,10 @@ Un informe por trabajo práctico, en PDF, con las capturas embebidas.
 | `TP2-informe.pdf` / `.html` | TP2 — Contenedores: la app del semestre (21 páginas) |
 | `TP3-informe.pdf` / `.html` | TP3 — Planificación y trazabilidad (15 páginas) |
 | `TP4-informe.pdf` / `.html` | TP4 — CI: Pipelines as Code (15 páginas) |
+
+> Desde el TP5 no hay informe ni capturas: la cátedra no los pide (el repo es público y se navega), y
+> cada decisión lleva su URL en [`decisiones.md`](../decisiones.md).
+
 | `build-informe.py` | Regenera el HTML del TP1 a partir de las imágenes de `../img/` |
 | `build-informe-tp2.py` | Ídem para el TP2 |
 | `build-informe-tp3.py` | Ídem para el TP3 |
