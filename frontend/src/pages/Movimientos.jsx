@@ -57,7 +57,7 @@ export default function Movimientos({ productos, movimientos, recargar, setError
                   <input type="number" min="1" value={cantidad}
                          onChange={(e) => setCantidad(e.target.value)} style={{ width: 110 }} required />
                 </label>
-                <button className="accion" type="submit" disabled={motivo !== null}>Guardar</button>
+                <button className="accion" type="submit" disabled={motivo !== null}>Registrar</button>
               </form>
 
               {motivo && <p className="aviso" role="status" style={{ marginTop: 12 }}>{motivo}</p>}
