@@ -57,6 +57,18 @@ Backend: pytest con cobertura de línea y rama, umbral 85 % (combinada). Fronten
 cobertura v8, umbral 90 % de líneas y 85 % de ramas. Por debajo del umbral, el comando falla — y con
 él, el check del Pull Request.
 
+### Los entornos desplegados (TP6)
+
+El pipeline despliega solo: cada merge a `main` llega a **QA**; **producción** sólo con aprobación.
+
+| Entorno | Aplicación | API | Base |
+|---|---|---|---|
+| QA | <https://inventario-front-qa.onrender.com> | <https://inventario-api-qa.onrender.com> | Neon `app_qa` |
+| Producción | <https://inventario-front-prod.onrender.com> | <https://inventario-api-prod-7xrj.onrender.com> | Neon `app_prod` |
+
+Son servicios gratuitos de Render: se duermen a los 15 minutos sin tráfico y el primer pedido tarda
+hasta un minuto en despertarlos.
+
 ### Levantarlo sin el código, desde el registry
 
 Las imágenes están publicadas en GitHub Container Registry. Con sólo el compose y el `.env` alcanza:
@@ -68,6 +80,9 @@ docker compose -f docker-compose.registry.yml up -d
 
 - `ghcr.io/marcosdon28/inventario-backend:v0.1.0`
 - `ghcr.io/marcosdon28/inventario-frontend:v0.1.0`
+
+Desde el TP6 el pipeline publica, en cada merge a `main`, las mismas dos imágenes etiquetadas con el
+commit: `…-backend:sha-<commit>` y `…-frontend:sha-<commit>`.
 
 ---
 
@@ -125,6 +140,7 @@ Planificación y tablero: **[IngSoft3 — Inventario DevOps](https://github.com/
 | TP3 | Planificación y trazabilidad | [`v3.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v3.0.0) |
 | TP4 | CI: Pipelines as Code | [`v4.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v4.0.0) |
 | TP5 | Testing en el pipeline: unit tests, coverage y umbral | [`v5.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v5.0.0) |
+| TP6 | CD: environments, aprobaciones y Render + Neon | [`v6.0.0`](https://github.com/marcosdon28/IngeSoft3-2319274/releases/tag/v6.0.0) |
 
 Cada práctico se cierra con su tag y su release: el tag marca el commit exacto con el que quedó
 entregado.
