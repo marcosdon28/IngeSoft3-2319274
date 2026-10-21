@@ -39,7 +39,9 @@ def crear_schema() -> None:
 APP_COMMIT = os.getenv("APP_COMMIT") or os.getenv("RENDER_GIT_COMMIT") or "local"
 
 
-@app.get("/health", tags=["salud"])
+# GET y HEAD: el plan gratuito de UptimeRobot (TP9) pregunta con HEAD, y FastAPI
+# no lo deriva solo de un GET: sin esto el monitor marca Down con PROD vivo.
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["salud"])
 def health():
     """Endpoint de salud: lo usan el healthcheck del compose y el smoke test del CD.
 
