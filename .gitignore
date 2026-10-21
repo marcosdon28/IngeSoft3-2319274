@@ -28,3 +28,7 @@ htmlcov/
 .vite/
 coverage/
 npm-debug.log*
+
+# ─── Playwright (TP7): reportes y resultados de cada corrida, no se commitean ──
+playwright-report/
+test-results/

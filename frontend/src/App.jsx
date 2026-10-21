@@ -49,7 +49,7 @@ export default function App() {
         </nav>
       </header>
       <main>
-        {error && <div className="error">{error}</div>}
+        {error && <div className="error" role="alert">{error}</div>}
         {pestana === 'dashboard' && <Dashboard {...comun} />}
         {pestana === 'productos' && <Productos {...comun} />}
         {pestana === 'categorias' && <Categorias {...comun} />}
