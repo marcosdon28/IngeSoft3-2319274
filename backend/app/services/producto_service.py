@@ -81,3 +81,30 @@ def actualizar(db: Session, producto_id: int, datos) -> dict:
 
     db.commit()
     return _a_dict(producto)
+
+
+def sugerir_reposicion(producto: Producto, salidas_recientes: int = 0) -> dict:
+    """Cuánto conviene reponer de un producto, y con qué urgencia.
+
+    Apunta a dejarlo en el DOBLE de su stock mínimo (así una semana normal de
+    salidas no lo vuelve a poner en alerta) y, si las salidas recientes superan
+    eso, a cubrirlas. Un producto inactivo o por encima del mínimo no se repone.
+    """
+    if not producto.activo:
+        return {"cantidad": 0, "urgencia": "ninguna", "motivo": "producto inactivo"}
+    if not producto.bajo_stock:
+        return {"cantidad": 0, "urgencia": "ninguna", "motivo": "por encima del mínimo"}
+
+    objetivo = producto.stock_minimo * 2
+    cantidad = max(objetivo - producto.stock, salidas_recientes)
+    if cantidad <= 0:
+        cantidad = max(producto.stock_minimo, 1)
+
+    if producto.stock == 0:
+        urgencia = "alta"
+    elif salidas_recientes > producto.stock:
+        urgencia = "media"
+    else:
+        urgencia = "baja"
+
+    return {"cantidad": cantidad, "urgencia": urgencia, "motivo": f"objetivo {objetivo} unidades"}
