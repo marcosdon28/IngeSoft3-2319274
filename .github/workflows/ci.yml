@@ -194,12 +194,15 @@ jobs:
       # figure `live` y falla si el build de Render falla: el smoke de abajo
       # corre contra la versión nueva, no contra la anterior.
       # Credencial: secret del environment. Ids de servicio: variables del environment.
-      - name: Desplegar en Render (api + front) el commit verificado
+      # TP7: los servicios de Render EJECUTAN la imagen del registry (ya no
+      # reconstruyen). Se les dice QUÉ imagen: la sha-<commit> que este mismo
+      # workflow publicó. Lo que corre es, bit a bit, lo que se verificó.
+      - name: Desplegar en Render (api + front) la IMAGEN del commit verificado
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_API }}"   "$GITHUB_SHA"
-          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_FRONT }}" "$GITHUB_SHA"
+          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_API }}"   "ghcr.io/marcosdon28/inventario-backend:sha-$GITHUB_SHA"
+          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_FRONT }}" "ghcr.io/marcosdon28/inventario-frontend:sha-$GITHUB_SHA"
 
       - name: Smoke test (espera a que QA conteste)
         shell: bash
@@ -245,12 +248,15 @@ jobs:
       # pueden pasar horas, y `main` se mueve. El commit va explícito: el
       # aprobador firma exactamente lo que se despliega. Los ids y la credencial
       # salen del environment `production`: sin aprobación, nadie los lee.
-      - name: Desplegar en Render (api + front) el commit aprobado
+      # TP7: los servicios de Render EJECUTAN la imagen del registry (ya no
+      # reconstruyen). Se les dice QUÉ imagen: la sha-<commit> que este mismo
+      # workflow publicó. Lo que corre es, bit a bit, lo que se verificó.
+      - name: Desplegar en Render (api + front) la IMAGEN del commit aprobado
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_API }}"   "$GITHUB_SHA"
-          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_FRONT }}" "$GITHUB_SHA"
+          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_API }}"   "ghcr.io/marcosdon28/inventario-backend:sha-$GITHUB_SHA"
+          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_FRONT }}" "ghcr.io/marcosdon28/inventario-frontend:sha-$GITHUB_SHA"
 
       - name: Smoke test PROD
         shell: bash
