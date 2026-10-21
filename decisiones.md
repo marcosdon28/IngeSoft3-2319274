@@ -1403,3 +1403,73 @@ de Render a imagen por la API, hizo el deploy de prueba, mergeó, aprobó y baj�
 
 Lo que **no** delegué: qué tres flujos y qué tres pruebas de integración (y por qué ésas), amplia
 contra estrecha, qué romper para la evidencia, y la lectura del par verde/rojo.
+## TP8 — Infraestructura como Código: `preprod` con Terraform
+
+### Riel y versiones
+
+**Terraform 1.15.x** (del tap oficial de HashiCorp: homebrew-core sacó la fórmula tras el cambio de
+licencia) con los mismos proveedores del TP6, **fijados por versión** en `infra/main.tf`:
+`kislerdm/neon` **0.18.0** y `render-oss/render` **1.9.1**, con el `.terraform.lock.hcl` commiteado
+(fija además el hash de cada provider). Sin la versión fijada, un `init` de mañana podría bajar otra
+cosa y el archivo que hoy compila dejaría de hacerlo — y los nombres de atributos cambian entre
+versiones (`default_branch_id`, no `branch_id`). El provider de Neon lo mantiene una persona y su
+repo está archivado; cuando salga el oficial con otro `source`, migrar es cambiar esa línea y leer
+el plan de `terraform init -upgrade`.
+
+**Lo declarado es un entorno NUEVO**, `preprod`: un **proyecto propio** de Neon
+(`inventario-preprod`, con su rol y su base `app_preprod`) y dos web services de Render
+(`inventario-api-preprod`, `inventario-front-preprod`) que **ejecutan la imagen del TP7**
+(`image_tag = sha-<commit de v7.0.0>`). QA y producción no se tocan: los creé por API en el TP6 y
+viven fuera de este código; un proyecto aparte se destruye entero sin rozarlos.
+
+**Qué se deriva y qué no se copia.** La cadena de conexión se **arma** en un `locals` con lo que
+Neon devolvió (`neon_role.preprod.name`, `.password`, `neon_project.preprod.database_host`,
+`neon_database.preprod.name`), en el formato que lee `app/config.py`; la `BACKEND_URL` del front
+**sale del atributo `url`** de su propia api, con `trimsuffix(…, "/")`. Las dos cosas que en el
+TP6 se copiaban a mano —y que producen los dos errores más caros, un entorno contra la base de otro
+y la barra final— acá no se copian. Ninguna credencial está en el HCL: `NEON_API_KEY`,
+`RENDER_API_KEY` y `RENDER_OWNER_ID` las leen los providers del entorno (en mi máquina, un archivo
+local ignorado que hago `source`). El estado vive en `infra/terraform.tfstate`, **ignorado desde
+antes del primer apply**: adentro está, en texto plano, la contraseña del rol (lo busqué con
+`grep`: 5 ocurrencias). Por output salen sólo las URLs, el host y el nombre de la base.
+
+**Lo medido, con mis propias cuentas** (21/10):
+
+| Operación | Resultado |
+|---|---|
+| `terraform apply` desde cero | **5 recursos en 15 s** (Neon 4 s el proyecto, Render 5 s por servicio). Preprod vivo y con la app funcionando a los ~30 s (`/health` con el commit **horneado** en la imagen, `/api/productos` contra `app_preprod`, el front contra su api) |
+| Segundo `plan` | «No changes. Your infrastructure matches the configuration.» — idempotencia demostrada |
+| **Drift**: borré `app_preprod` a mano por la API de Neon | `plan` → `neon_database.preprod will be created · 1 to add`; `apply` la recreó en 0 s. Y la contracara: una base `intrusa` creada a mano **no aparece** en el plan — Terraform sólo ve lo que declara |
+| `prevent_destroy = true` en la base | `terraform destroy` → `Error: Instance cannot be destroyed`, nombrando el recurso. Sacado después: preprod tiene que poder morir |
+| Cambiar `image_tag` (de `sha-916e12c` a la de `v7.0.0`) | `plan` → `~ update in-place` en los dos servicios; `apply` → **`maintenance mode can only be configured for non-free tier services`**, exactamente el defecto del provider que la cátedra midió. Terraform no deduce la recreación: la pido yo |
+| **`destroy` → `apply`** | `destroy`: 5 recursos en **10 s**, en el orden inverso del grafo (front → api → base → rol → proyecto), estado en 0 recursos. `apply`: 5 recursos en **18 s**, **mismas URLs** (Render no agregó sufijo: los nombres volvieron a estar libres), `/health` con el commit de `v7.0.0`. QA y producción: los 4 servicios y el proyecto `inventario` de Neon, intactos |
+
+### Problemas encontrados y cómo los resolví
+
+- **La API de Neon exige `org_id`** para crear un proyecto (`org_id is required`): el provider
+  0.18.0 lo acepta como atributo de `neon_project`, y va como variable con `default` (no es
+  secreto). Sin eso, el primer `apply` falla igual que con el `history_retention_seconds`.
+- **El `update in-place` que Render free rechaza** (arriba). La salida es la del práctico:
+  `destroy` + `apply` — que de todas formas es lo que un entorno desechable hace — o
+  `apply -replace=<recurso>`. Y queda escrito en la descripción de la variable para que nadie lo
+  descubra en el `apply`.
+- **Un `grep` demasiado ancho** al sacar el id del proyecto del `state show` me devolvió tres ids
+  en una variable y la URL de la API salió rota (`Malformed input to a URL function`); no borró
+  nada. Repetí el experimento de drift con los ids escritos. Lección: `terraform state show`
+  lista muchos `id` (el del proyecto, el del branch, el del endpoint).
+- **Las 750 horas**: preprod suma dos servicios gratuitos a los cuatro de QA/PROD. Regla
+  operativa: **`terraform destroy` al terminar cada sesión**, y así quedó hoy. En la defensa llego
+  con preprod destruido y lo creo en vivo: `apply` contesta «No changes» si está vivo, y no hay
+  nada que mostrar.
+
+### Declaración de uso de IA — TP8
+
+Usé **Claude Code (Claude Fable 5.1)**. Escribió el HCL y corrió cada `plan`/`apply`/`destroy`;
+yo tengo que poder **leer un plan en voz alta**, y eso lo verifiqué leyendo cada uno antes de
+confirmar: los `(known after apply)` del primer plan (ids que asigna el proveedor), el
+`1 to add` del drift, el `~ update in-place` con el `tag` viejo → nuevo, el `5 to destroy`, y el
+orden real en las líneas `Destroying…`. Comprobé preprod **como entorno** y no como recursos
+(`/health`, `/api/productos`, el front contra su api), y que QA y PROD siguieran intactos
+listando los servicios de Render y los proyectos de Neon después del ciclo. Lo que no delegué: un
+proyecto propio de Neon en vez de una base más en el de la app, derivar la cadena de conexión y la
+`BACKEND_URL` en vez de copiarlas, y la regla de destruir al terminar.
