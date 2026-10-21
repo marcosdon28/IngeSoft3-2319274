@@ -12,7 +12,27 @@ RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
  && /opt/venv/bin/pip install -r requirements.txt
 
-# ---- Etapa 2: runtime (imagen mínima, sin compilador ni pip cache) ----
+# ---- Etapa 2: tests (parte del build: ya tiene el venv con las dependencias) ----
+# Hereda de `build`: mismo código fuente y mismas dependencias que se compilaron.
+# Agrega SÓLO las herramientas de test (pytest, pytest-cov), que la imagen final
+# nunca se lleva. No corre durante el `docker build`: corre en el `docker run`
+# del pipeline, que monta /out para sacar el reporte afuera.
+FROM build AS test
+COPY requirements-dev.txt .
+RUN /opt/venv/bin/pip install -r requirements-dev.txt
+ENV PATH="/opt/venv/bin:$PATH"
+COPY .coveragerc .
+COPY app ./app
+COPY tests ./tests
+# El umbral que FRENA el build (--cov-fail-under) vive acá: una sola receta para
+# la máquina local y el pipeline. Se mide línea y rama; el umbral mira las dos.
+ENTRYPOINT ["pytest", "--cov=app", "--cov-branch", "--cov-fail-under=85", \
+            "--cov-report=term-missing", \
+            "--cov-report=xml:/out/coverage.xml", \
+            "--cov-report=html:/out/htmlcov", \
+            "--junitxml=/out/tests.xml"]
+
+# ---- Etapa 3: runtime (imagen mínima, sin compilador ni pip cache) ----
 FROM python:3.12-slim AS final
 WORKDIR /app
 

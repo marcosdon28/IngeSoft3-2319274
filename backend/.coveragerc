@@ -1,0 +1,18 @@
+# Qué ENTRA en la cuenta de cobertura (TP5). Se excluye lo que no tiene reglas:
+#   - el arranque (main.py: cablea routers y crea el schema) y la infraestructura
+#     (database.py: engine y sesión; config.py: lectura del entorno),
+#   - los routers: pegamento HTTP que traduce excepciones a códigos; no hay reglas ahí.
+# Los models y los schemas QUEDAN adentro: `bajo_stock` (regla 6) y los `Field`
+# (regla 4) son reglas de negocio y tienen tests.
+[run]
+branch = True
+source = app
+omit =
+    app/main.py
+    app/database.py
+    app/config.py
+    app/routers/*
+
+[report]
+show_missing = True
+precision = 1
