@@ -220,3 +220,44 @@ jobs:
             sleep 20
           done
           echo "❌ QA no respondió a tiempo"; exit 1
+
+  # ---- TP6: el gate humano. PROD sólo después de QA vivo y con aprobación ----
+  deploy-prod:
+    runs-on: ubuntu-latest
+    needs: deploy-qa                            # PROD sólo después de QA vivo
+    # No repite el `if` de la rama: depende de deploy-qa, que sí lo tiene; en un
+    # PR ninguno de los dos corre. La condición se hereda por la cadena.
+    environment: production                     # ⏸ acá el workflow SE PAUSA hasta el approve
+    # Dos deploys a PROD nunca a la vez. Ojo: NO ordena la cola de aprobaciones —una
+    # corrida vieja esperando aprobación no está "en cola"—: eso se rechaza a mano.
+    concurrency: { group: deploy-prod, cancel-in-progress: false }
+    steps:
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      # Entre que la corrida queda esperando aprobación y que alguien la aprueba
+      # pueden pasar horas, y `main` se mueve. El commit va explícito: el
+      # aprobador firma exactamente lo que se despliega. Los ids y la credencial
+      # salen del environment `production`: sin aprobación, nadie los lee.
+      - name: Desplegar en Render (api + front) el commit aprobado
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_API }}"   "$GITHUB_SHA"
+          ./scripts/render-deploy.sh "${{ vars.RENDER_SERVICE_FRONT }}" "$GITHUB_SHA"
+
+      - name: Smoke test PROD
+        shell: bash
+        env:
+          URL_API: https://inventario-api-prod-7xrj.onrender.com
+          URL_FRONT: https://inventario-front-prod.onrender.com
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 "$URL_API/health" \
+               && curl -fsS --max-time 10 "$URL_API/api/productos" > /dev/null \
+               && curl -fsS --max-time 10 "$URL_FRONT/" > /dev/null; then
+              echo "✅ PROD responde (API + BD + front) — vuelta $i"; exit 0
+            fi
+            sleep 20
+          done
+          echo "❌ PROD no respondió a tiempo"; exit 1
